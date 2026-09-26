@@ -14,7 +14,8 @@ import type { ExecutionContinuationEnvelope } from "@paperclipai/shared";
 import { sanitizeQuarantinedCommentForHigherTrust } from "./source-trust.js";
 import { hasConversationContinuationPolicy } from "./conversation-continuation.js";
 import { queuedCommentIdsFromWakePayload } from "./issue-queued-comment-queue.js";
-import { applyCompaction, enforceBudget } from "./bu-context-budget.js";
+import { applyCompaction, CONTEXT_SOFT_LIMIT_BYTES, enforceBudget, envelopeBytes } from "./bu-context-budget.js";
+import { requestAutoCompaction } from "./bu-context-compaction.js";
 
 const object = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v)
@@ -380,5 +381,7 @@ export async function buildExecutionContinuation(input: {
     ? { id: compaction.id, summaryMarkdown: compaction.summaryMarkdown,
         throughCommentId: compaction.throughCommentId, throughCreatedAt: compaction.throughCreatedAt }
     : null;
-  return enforceBudget(applyCompaction(envelope, ready));
+  const applied = applyCompaction(envelope, ready);
+  if (envelopeBytes(applied) > CONTEXT_SOFT_LIMIT_BYTES) requestAutoCompaction(db, companyId, issueId);
+  return enforceBudget(applied);
 }

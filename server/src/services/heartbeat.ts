@@ -162,6 +162,7 @@ import {
 import { createHostDuplexObservabilityRecorder } from "./duplex-observability-recorder.js";
 import { incrementToolRuntimeMetricCounter } from "./tool-runtime-metrics.js";
 import { logger } from "../middleware/logger.js";
+import { onCompactionRunTerminal, registerCompactionWakeup } from "./bu-context-compaction.js";
 import {
   createGitRemoteAuthProvider,
   resolveManagedGitHubIdentitySelection,
@@ -12864,6 +12865,11 @@ export function heartbeatService(
   function publishRunLifecyclePluginEvent(
     run: typeof heartbeatRuns.$inferSelect,
   ) {
+    // bu-fork: context compaction — finalize when a compactor run ends.
+    if (["succeeded", "failed", "timed_out", "cancelled", "interrupted"].includes(run.status)) {
+      void onCompactionRunTerminal(db, run.id, run.status).catch((err) =>
+        logger.warn({ err, runId: run.id }, "context compaction: finalize failed"));
+    }
     publishRunLifecyclePluginEventData({
       companyId: run.companyId,
       runId: run.id,
@@ -28725,6 +28731,8 @@ export function heartbeatService(
     await cancelPendingWakeupsForBudgetScope(scope);
   }
 
+  // bu-fork: context compaction starts its separate runs through this service.
+  registerCompactionWakeup(trackWakeup as never);
   return {
     waitForRunExecutionDrain: async (
       runId: string,
