@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MicTranscribeButton } from "@/components/bu/MicTranscribeButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1586,6 +1587,16 @@ export function TaskChatComposer({
               />
             ) : null}
 
+            {/* bu-fork: dictate, transcribed locally, reviewed before sending */}
+            <MicTranscribeButton
+              disabled={disabled || submitting || !!uncertainSubmission}
+              onTranscript={(text) => {
+                setActionError(null);
+                editorRef.current?.insertMarkdown(bodyRef.current.trim() ? ` ${text}` : text);
+                requestAnimationFrame(() => editorRef.current?.focus());
+              }}
+              onError={(message) => setActionError(message)}
+            />
             {queuedEdit ? (
               <button
                 type="button"

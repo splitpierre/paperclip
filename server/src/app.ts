@@ -63,6 +63,7 @@ import { environmentRuntimeService } from "./services/environment-runtime.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
 import { buCompactionRoutes } from "./routes/bu-compaction.js";
+import { buTranscribeRoutes } from "./routes/bu-transcribe.js";
 import { issueTreeControlRoutes } from "./routes/issue-tree-control.js";
 import { caseRoutes } from "./routes/cases.js";
 import { fileResourceRoutes } from "./routes/file-resources.js";
@@ -821,6 +822,7 @@ export async function createApp(
   // issue approval endpoints delegate to it. The intervening routers use distinct
   // route prefixes, so this dependency does not change issue-route precedence.
   api.use(buCompactionRoutes(db)); // bu-fork: context compaction
+  api.use(buTranscribeRoutes()); // bu-fork: composer mic transcription
   api.use(issueRoutes(db, opts.storageService, {
     chatRunRetries: chatChannels,
     feedbackExportService: opts.feedbackExportService,

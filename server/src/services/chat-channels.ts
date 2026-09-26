@@ -10764,7 +10764,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       const sourceBoundMedia =
         teamsInlineImage ||
         telegramMedia ||
-        input.endpoint.provider === "imessage-photon";
+        photonLikeConversation(input.endpoint.provider);
       const requireCurrentAttachmentAuthorization =
         input.endpoint.provider === "github" || sourceBoundMedia;
       try {
@@ -14554,7 +14554,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             : nativeInboundAttachments.includes(attachment)
               ? endpointRuntime.attachmentRecoveryDescriptor(
                   attachment,
-                  ["telegram", "imessage-photon"].includes(endpoint.provider)
+                  ["telegram", "imessage-photon", "whatsapp"].includes(endpoint.provider)
                     ? attachmentSource
                     : undefined,
                 )
@@ -16909,7 +16909,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         if (rehydrated) return rehydrated;
         if (
           isTeams ||
-          endpointRuntime.provider === "imessage-photon" ||
+          photonLikeConversation(endpointRuntime.provider) ||
           (endpointRuntime.provider === "telegram" &&
             typeof attachment.recovery === "object" &&
             attachment.recovery !== null &&
