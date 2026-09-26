@@ -19,6 +19,9 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 BASE_VERSION="2026.916.1"
 INSTALL="$HOME/.paperclip/cli/installs/npm/$BASE_VERSION/node_modules/@paperclipai"
 BACKUPS="$HOME/.paperclip/cli/overlay-backups"
+# Runtime packages the fork adds (installed outside the managed tree, then linked in).
+RUNTIME_DEPS_DIR="$HOME/.paperclip/cli/bu-runtime-deps"
+RUNTIME_DEPS=("baileys@7.0.0-rc14")
 DB_URL="${DATABASE_URL:-postgres://paperclip:paperclip@127.0.0.1:54329/paperclip}"
 export PATH="$HOME/.local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 # Extra copies of the same packages loaded by our external adapter plugins.
@@ -96,6 +99,15 @@ done < "$plan"
 git -C "$REPO" rev-parse HEAD > "$backup/commit.txt"
 [ "$ui_changed" = 1 ] && cp -a "$UI_DIST" "$backup/ui-dist"
 echo "== backup: $backup"
+
+echo "== runtime dependencies"
+mkdir -p "$RUNTIME_DEPS_DIR"
+[ -f "$RUNTIME_DEPS_DIR/package.json" ] || echo '{"name":"bu-runtime-deps","private":true}' > "$RUNTIME_DEPS_DIR/package.json"
+npm install --prefix "$RUNTIME_DEPS_DIR" --no-audit --no-fund "${RUNTIME_DEPS[@]}" > /dev/null
+for spec in "${RUNTIME_DEPS[@]}"; do
+  name="${spec%@*}"; link="$INSTALL/server/node_modules/$name"
+  if [ ! -e "$link" ]; then echo "$link" >> "$backup/new-files.txt"; ln -s "$RUNTIME_DEPS_DIR/node_modules/$name" "$link"; fi
+done
 
 echo "== stopping Paperclip"
 systemctl --user stop paperclipai.service

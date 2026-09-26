@@ -8,6 +8,7 @@ import { PhotonAnswerValidationError, nativePhotonInteraction, publishPhotonProm
 import { validateNativeQuestionResponseInput } from "./native-runtime/native-question-bridge.js";
 import type { AskUserQuestionsAnswer, AskUserQuestionsInteraction, IssueThreadInteraction } from "@paperclipai/shared";
 import { PhotonCloudClient, PhotonError, photonFailure, photonSharedIdentity, photonSharedScope } from "./photon/cloud.js";
+import { verifyWhatsappCredentials } from "./whatsapp/credentials.js"; // bu-fork
 import { PhotonChatAdapter, photonThreadId, photonReplyReference } from "./photon/adapter.js";
 import { photonChannelConfigurationSchema, type PhotonChannelConfiguration } from "@paperclipai/shared";
 import type { LiveEvent as PhotonEvent } from "@photon-ai/advanced-imessage";
@@ -403,6 +404,7 @@ const PROVIDER_LABELS: Record<ChatProvider, string> = {
   discord: "Discord",
   "microsoft-teams": "Microsoft Teams",
   telegram: "Telegram",
+  whatsapp: "WhatsApp", // bu-fork
 };
 
 type PublicationOrderTable = {
@@ -591,6 +593,8 @@ async function inspectSlackCallback(
 }
 
 const CAPABILITIES: Record<ChatProvider, ChatAdapterCapabilities> = {
+  // bu-fork: WhatsApp linked device — plain text, typing, no edits/files/cards.
+  whatsapp: { threads: false, directMessages: true, nativeStreaming: false, messageEdits: false, messageDeletes: false, reactions: false, files: false, cards: false, actions: false, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: false },
   "imessage-photon": { threads: false, directMessages: true, nativeStreaming: false, messageEdits: true, messageDeletes: false, reactions: false, files: true, cards: false, actions: true, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: false },
   agentmail: { threads: true, directMessages: true, nativeStreaming: false, messageEdits: false, messageDeletes: false, reactions: false, files: true, cards: false, actions: false, modals: false, slashCommands: false, ephemeralMessages: false, proactiveDirectMessages: true },
   slack: {
@@ -691,6 +695,7 @@ const REQUIRED_CREDENTIALS: Record<
   discord: ["botToken", "applicationId", "guildId"],
   "microsoft-teams": ["clientId", "tenantId", "clientSecret"],
   telegram: ["botToken"],
+  whatsapp: ["authDir"], // bu-fork
 };
 
 const REQUIRED_SLACK_BOT_SCOPES = [
@@ -751,6 +756,7 @@ const SUPPLIED_CREDENTIAL_KEYS: Record<ChatProvider, readonly string[]> = {
   discord: ["botToken", "applicationId", "guildId"],
   "microsoft-teams": ["clientId", "tenantId", "clientSecret"],
   telegram: ["botToken"],
+  whatsapp: ["authDir"], // bu-fork
 };
 
 const MAX_INBOUND_TEXT = 100_000;
@@ -784,7 +790,10 @@ const PUBLICATION_ENDPOINT_CONCURRENCY = 4;
 const CREDENTIAL_MUTATION_LEASE_WAIT_MS = 10_000;
 const CREDENTIAL_MUTATION_LEASE_POLL_MS = 25;
 const DISCORD_GATEWAY_LEASE_KEY = "discord_gateway_runtime";
-function leasedChatProvider(provider: string): boolean { return provider === "discord" || provider === "imessage-photon"; }
+function leasedChatProvider(provider: string): boolean { return provider === "discord" || provider === "imessage-photon" || provider === "whatsapp"; }
+// bu-fork: WhatsApp behaves like iMessage for conversations: a reply ends a turn,
+// only /new or /close ends the conversation; groups need explicit enabling.
+function photonLikeConversation(provider: string): boolean { return provider === "imessage-photon" || provider === "whatsapp"; }
 const DISCORD_GATEWAY_LEASE_TTL_MS = 15_000;
 const DISCORD_GATEWAY_LEASE_WAIT_MS = 20_000;
 const DISCORD_GATEWAY_LEASE_POLL_MS = 100;
@@ -1488,7 +1497,7 @@ type DiscordGatewayOwnership = {
   context: RuntimeContext;
   endpointId: string;
   expiresAt: Date;
-  leaseKey: typeof DISCORD_GATEWAY_LEASE_KEY | "photon_receiver_runtime";
+  leaseKey: typeof DISCORD_GATEWAY_LEASE_KEY | "photon_receiver_runtime" | "whatsapp_receiver_runtime";
   renewTimer: ReturnType<typeof setInterval> | null;
   renewal: Promise<void> | null;
   stopPromise: Promise<void> | null;
@@ -1506,7 +1515,7 @@ function providerResourceType(
 ): string {
   if (surfaceKind === "direct_message") return "direct_message";
   if (provider === "github") return "repository";
-  if (provider === "imessage-photon") return "group_chat";
+  if (provider === "imessage-photon" || provider === "whatsapp") return "group_chat";
   if (provider === "discord") return "channel";
   if (provider === "microsoft-teams")
     return surfaceKind === "linear_group" ? "group_chat" : "channel";
@@ -1625,7 +1634,7 @@ function chatSurfaceKind(
   thread: Thread,
 ): ChatSurfaceKind {
   if (thread.isDM) return "direct_message";
-  if (provider === "imessage-photon") return "linear_group";
+  if (provider === "imessage-photon" || provider === "whatsapp") return "linear_group";
   if (provider === "telegram") {
     return /^telegram:[^:]+:[^:]+$/.test(thread.id)
       ? "native_thread"
@@ -2616,6 +2625,7 @@ function providerSetupState(
   const step = endpoint.status === "active" ? "complete" : endpoint.setup.step;
   switch (endpoint.provider) {
     case "imessage-photon": return { step, providerUrl: "https://photon.codes/", testStartedAt: endpoint.setup.testStartedAt } as const;
+    case "whatsapp": return { step, testStartedAt: endpoint.setup.testStartedAt } as const; // bu-fork
     case "agentmail": return endpoint.setup;
     case "slack": {
       const observations = (endpoint.setup as InternalSetupState)
@@ -3253,7 +3263,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     context: RuntimeContext,
     waitForOwnership: boolean,
   ): Promise<DiscordGatewayOwnership | null> {
-    const receiverLeaseKey = endpoint.provider === "imessage-photon" ? "photon_receiver_runtime" : DISCORD_GATEWAY_LEASE_KEY;
+    const receiverLeaseKey = endpoint.provider === "imessage-photon" ? "photon_receiver_runtime" : endpoint.provider === "whatsapp" ? "whatsapp_receiver_runtime" : DISCORD_GATEWAY_LEASE_KEY;
     const local = discordGatewayOwnerships.get(endpoint.id);
     if (
       local &&
@@ -5978,7 +5988,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         // enables that surface, even when this process is running against a
         // database created before the column default was hardened.
         allowGroupChats: input.provider !== "microsoft-teams",
-        allowUnlinkedPeople: input.provider !== "imessage-photon",
+        // bu-fork: WhatsApp answers only linked people (friends are ignored).
+        allowUnlinkedPeople: input.provider !== "imessage-photon" && input.provider !== "whatsapp",
         capabilities: CAPABILITIES[input.provider],
         setup: {
           step: "provider_setup",
@@ -6086,6 +6097,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     provider: ChatProvider,
     credentials: Record<string, string>,
   ): Promise<VerifiedProviderIdentity> {
+    if (provider === "whatsapp") return verifyWhatsappCredentials(credentials.authDir ?? ""); // bu-fork
     if (provider === "imessage-photon") {
       const inspection = await inspectPhotonCredentials(credentials.projectId, credentials.projectSecret);
       if (inspection.allocation !== (credentials.allocation ?? "dedicated")) throw unprocessable("Photon allocation changed; inspect the project again");
@@ -6321,7 +6333,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     return (
       provider === "github" ||
       provider === "discord" ||
-      provider === "microsoft-teams" || provider === "imessage-photon"
+      provider === "microsoft-teams" || provider === "imessage-photon" || provider === "whatsapp"
     );
   }
 
@@ -7499,6 +7511,10 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     userName: string,
     credentials: Record<string, string>,
   ): ResolvedChatSdkProviderConfig {
+    if (endpoint.provider === "whatsapp") return { // bu-fork
+      provider: "whatsapp", userName,
+      credentials: { authDir: credentials.authDir, phoneNumber: endpoint.botExternalId ?? "" },
+    };
     if (endpoint.provider === "imessage-photon") return {
       provider: "imessage-photon", userName,
       intakeAfter: Date.parse(String((endpoint.setup as InternalSetupState).photonIntakeAfter ?? endpoint.setup.testStartedAt ?? endpoint.createdAt.toISOString())),
@@ -7873,6 +7889,21 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
                   await tx.update(chatEndpoints).set({ status: current.setup.step === "complete" ? "active" : "verifying", healthMessage: "Photon receiver connected", lastError: null, updatedAt: new Date() }).where(eq(chatEndpoints.id, endpoint.id));
                 });
               },
+              // bu-fork: WhatsApp receiver health drives the endpoint status.
+              onWhatsappConnected: () => db.transaction(async (tx) => {
+                const current = await runtimeCallbackEndpoint(tx, endpoint.id, context, ["verifying", "active", "attention"]);
+                if (!current) return;
+                await tx.update(chatEndpoints).set({
+                  status: current.status === "attention" ? (current.setup.step === "complete" ? "active" : "verifying") : current.status,
+                  healthMessage: "WhatsApp connected", lastError: null, updatedAt: new Date(),
+                }).where(eq(chatEndpoints.id, endpoint.id));
+              }),
+              onWhatsappFailure: (error) => db.transaction(async (tx) => {
+                const current = await runtimeCallbackEndpoint(tx, endpoint.id, context, ["verifying", "active", "attention"]);
+                if (!current) return;
+                await tx.update(chatEndpoints).set({ status: "attention", healthMessage: error.message, lastError: error.message, updatedAt: new Date() })
+                  .where(eq(chatEndpoints.id, endpoint.id));
+              }),
               onPhotonCheckpoint: (sequence) => db.transaction(async (tx) => {
                 if (!(await runtimeCallbackEndpoint(tx, endpoint.id, context, ["verifying", "active"]))) throw new Error("Photon receiver is no longer current");
                 if ((await renewDiscordGatewayOwnershipForMessageAdmission(tx, endpoint.id, context)).kind !== "owned") throw new Error("Photon receiver lease was replaced");
@@ -8002,7 +8033,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       )
       .where(
         and(
-          inArray(chatEndpoints.provider, ["discord", "imessage-photon"]),
+          inArray(chatEndpoints.provider, ["discord", "imessage-photon", "whatsapp"]),
           inArray(chatEndpoints.status, ["verifying", "active", "attention"]),
           eq(toolConnections.status, "active"),
           eq(toolConnections.enabled, true),
@@ -9427,7 +9458,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     ) {
       throw unprocessable("Unsupported chat endpoint setup action");
     }
-    if (!webhookPublicBaseUrl && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon") {
+    if (!webhookPublicBaseUrl && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon" && endpoint.provider !== "whatsapp") {
       throw unprocessable(
         `A public HTTPS Paperclip URL is required before connecting ${PROVIDER_LABELS[endpoint.provider]}`,
       );
@@ -9916,7 +9947,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           );
         }
         const requiredTrigger =
-          ["telegram", "imessage-photon"].includes(endpoint.provider)
+          ["telegram", "imessage-photon", "whatsapp"].includes(endpoint.provider)
             ? "direct_message"
             : "subscribed_message";
         const qualifyingDelivery = await db
@@ -9943,7 +9974,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           !qualifyingDelivery.processedAt
         ) {
           throw conflict(
-            ["telegram", "imessage-photon"].includes(endpoint.provider)
+            ["telegram", "imessage-photon", "whatsapp"].includes(endpoint.provider)
               ? "Send the test direct message before completing setup"
               : "Reply once without mentioning the agent before completing setup",
             { code: "chat_test_follow_up_missing" },
@@ -14737,7 +14768,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       }
       if (
         endpointAccepting &&
-        endpoint.provider === "imessage-photon" &&
+        photonLikeConversation(endpoint.provider) &&
         !thread.isDM
       ) {
         const resource = await ensureResource(endpoint, thread, false, tx);
@@ -14752,7 +14783,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         (!thread.isDM &&
           (endpoint.provider === "microsoft-teams" ||
             endpoint.provider === "telegram" ||
-            endpoint.provider === "imessage-photon") &&
+            photonLikeConversation(endpoint.provider)) &&
           (!accepting || provisionalTeamsSetupReply));
       const ignoredAt = accepting ? null : new Date();
       const inactiveReason = !endpointAccepting
@@ -15243,7 +15274,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         message.raw,
       );
       const mayEnableSetupDestination =
-        endpoint.provider !== "imessage-photon" &&
+        !photonLikeConversation(endpoint.provider) &&
         !thread.isDM &&
         endpoint.status === "verifying" &&
         addressed &&
@@ -15354,7 +15385,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       if (
         isLinear &&
         existingConversation &&
-        (endpoint.provider === "imessage-photon"
+        (photonLikeConversation(endpoint.provider)
           // A reply finishes an iMessage turn, not the conversation. Only a
           // delivered /new or /close releases this chat's task binding. Use
           // the durable control receipt so pre-fix completed rows also resume.
@@ -17340,7 +17371,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         event.thread,
         message,
         message === event.message ? event.trigger : "subscribed_message",
-        event.provider === "imessage-photon" ||
+        photonLikeConversation(event.provider) ||
           options.deferWebhookProcessing === true,
         null,
         runtimeContext,
@@ -28088,7 +28119,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         issueTitle: issue?.title ?? null,
         isDirectMessage: conversation.isDirectMessage,
         state:
-          record.endpoint.provider !== "imessage-photon" &&
+          !photonLikeConversation(record.endpoint.provider) &&
           (issue?.status === "done" || issue?.status === "cancelled")
             ? "completed"
             : conversation.state,
@@ -33567,6 +33598,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     if (progress && ["queued", "working"].includes(progress)) {
       const endpoint = await endpointRecord(publication.endpointId);
       if (endpoint?.endpoint.provider === "imessage-photon") return "iMessage uses typing instead of progress bubbles";
+      if (endpoint?.endpoint.provider === "whatsapp") return "WhatsApp uses typing instead of progress bubbles"; // bu-fork
     }
     if (
       !progress ||
