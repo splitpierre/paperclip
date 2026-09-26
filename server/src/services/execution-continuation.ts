@@ -4,6 +4,7 @@ import {
   agentWakeupRequests,
   heartbeatRuns,
   issueComments,
+  issueContextCompactions,
   issueRecoveryActions,
   issueThreadInteractions,
   issues,
@@ -13,6 +14,7 @@ import type { ExecutionContinuationEnvelope } from "@paperclipai/shared";
 import { sanitizeQuarantinedCommentForHigherTrust } from "./source-trust.js";
 import { hasConversationContinuationPolicy } from "./conversation-continuation.js";
 import { queuedCommentIdsFromWakePayload } from "./issue-queued-comment-queue.js";
+import { applyCompaction, enforceBudget } from "./bu-context-budget.js";
 
 const object = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v)
@@ -314,7 +316,7 @@ export async function buildExecutionContinuation(input: {
     (hasConversationContinuationPolicy(lastTerminal.result) ||
       lastTerminal.status === "interrupted" || lastTerminal.errorCode === "process_lost")
     ? lastTerminal.id : undefined);
-  return {
+  const envelope: ExecutionContinuationEnvelope = {
     ...(interruptedRunId ? { interruptedRunId } : {}),
     ...(resumeDelta ? { resumeDelta } : {}),
     recoveryOutcomes: reconciliations
@@ -358,4 +360,25 @@ export async function buildExecutionContinuation(input: {
       summaryThroughCommentId: null,
     },
   };
+  // bu-fork: context compaction — summary replaces covered history, then a hard size budget.
+  const [compaction] = await db
+    .select({
+      id: issueContextCompactions.id,
+      summaryMarkdown: issueContextCompactions.summaryMarkdown,
+      throughCommentId: issueContextCompactions.throughCommentId,
+      throughCreatedAt: issueContextCompactions.throughCreatedAt,
+    })
+    .from(issueContextCompactions)
+    .where(and(
+      eq(issueContextCompactions.companyId, companyId),
+      eq(issueContextCompactions.issueId, issueId),
+      eq(issueContextCompactions.status, "ready"),
+    ))
+    .orderBy(desc(issueContextCompactions.completedAt))
+    .limit(1);
+  const ready = compaction?.summaryMarkdown && compaction.throughCommentId && compaction.throughCreatedAt
+    ? { id: compaction.id, summaryMarkdown: compaction.summaryMarkdown,
+        throughCommentId: compaction.throughCommentId, throughCreatedAt: compaction.throughCreatedAt }
+    : null;
+  return enforceBudget(applyCompaction(envelope, ready));
 }

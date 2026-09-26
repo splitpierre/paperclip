@@ -45,10 +45,23 @@ export interface ExecutionContinuationEnvelope {
     result: unknown;
   }>;
   unresolvedInteractionIds: string[];
+  /**
+   * bu-fork: digest of the messages up to `throughCommentId`, written by a
+   * separate compaction run. Those messages are left out of `messages`
+   * (except the ones that triggered this wake); the full thread stays in the API.
+   */
+  summary?: {
+    compactionId: string;
+    markdown: string;
+    throughCommentId: string;
+    summarizedMessageCount: number;
+  };
   coverage: {
-    kind: "full_task_history" | "task_history_delta";
+    kind: "full_task_history" | "task_history_delta" | "summarized_task_history" | "truncated_task_history";
     baseRunId?: string;
     throughCommentId: string | null;
-    summaryThroughCommentId: null;
+    summaryThroughCommentId: string | null;
+    /** bu-fork: older messages dropped by the size safety net (not covered by a summary). */
+    omittedMessageCount?: number;
   };
 }
