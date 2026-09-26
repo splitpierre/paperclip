@@ -30,8 +30,9 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
 - [ ] Mark messages from **linked** people as read (blue ticks); never for unlinked senders.
 - [ ] Title WhatsApp conversations "WhatsApp · <name>" instead of the first message.
 - [ ] Optionally hide channel conversations from task lists (show them under the channel / agent chats).
-- [ ] Media: at least tell the sender that voice notes/images are not supported (today they are admitted
-      as an "unsupported message" placeholder text).
+- [x] Images reach the agent as attachments; voice notes are transcribed locally (faster-whisper,
+      `scripts/bu/setup-whisper.sh`). Video/documents/stickers still arrive as a placeholder.
+- [x] Composer mic button (web chat + task threads): dictate, transcribe locally, review, send.
 
 ## Platform fixes found along the way
 
