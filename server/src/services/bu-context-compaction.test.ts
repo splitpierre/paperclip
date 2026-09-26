@@ -17,7 +17,7 @@ import {
   issues,
 } from "@paperclipai/db";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "../__tests__/helpers/embedded-postgres.js";
-import { onCompactionRunTerminal, registerCompactionWakeup, requestCompaction } from "./bu-context-compaction.js";
+import { conversationCompactionSummary, onCompactionRunTerminal, registerCompactionWakeup, requestCompaction } from "./bu-context-compaction.js";
 import { buildExecutionContinuation } from "./execution-continuation.js";
 
 const support = await getEmbeddedPostgresTestSupport();
@@ -105,6 +105,51 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(envelope.coverage.kind).toBe("summarized_task_history");
     expect(envelope.summary?.markdown).toBe(summary);
     expect(envelope.messages.map((m) => m.id)).toEqual(commentIds.slice(6));
+
+    // Only the 4 kept messages are newer than the cursor: nothing to do yet.
+    expect(await requestCompaction(db, { companyId, issueId, trigger: "manual" })).toEqual({ status: "nothing_to_compact" });
+    // Later messages chain a new compaction on top of the previous summary.
+    await db.insert(issueComments).values(Array.from({ length: 3 }, (_, i) => ({
+      companyId, issueId, authorType: "user" as const, authorUserId: "local-board", body: `later ${i}`,
+      createdAt: new Date(Date.UTC(2026, 8, 20, 11, i)),
+    })));
+    const chained = await requestCompaction(db, { companyId, issueId, trigger: "auto" });
+    expect(chained.status).toBe("started");
+    const [second] = await db.select().from(issueContextCompactions)
+      .where(eq(issueContextCompactions.id, (chained as { compactionId: string }).compactionId));
+    expect(second.previousCompactionId).toBe(row.id);
+    expect(second.sourceMessageCount).toBe(3); // 7 newer messages, 4 kept verbatim
+    const transcript = await readFile(path.join(path.dirname(second.archivePath!), "transcript.md"), "utf8");
+    expect(transcript).toContain("Finish the long task."); // previous summary carried forward
+    await onCompactionRunTerminal(db, wakes.at(-1)!.runId, "cancelled");
+  });
+
+  it("hands a compacted chat its summary only while its session is fresh", async () => {
+    const chatId = randomUUID();
+    await db.insert(issues).values({
+      id: chatId, companyId, title: "Chat with Worker", status: "in_review", assigneeAgentId: workerId,
+      conversationAgentId: workerId, conversationUserId: "local-board", conversationState: "waiting",
+    });
+    await db.insert(issueComments).values(Array.from({ length: 8 }, (_, i) => ({
+      companyId, issueId: chatId, authorType: "user" as const, authorUserId: "local-board", body: `chat ${i}`,
+      createdAt: new Date(Date.UTC(2026, 8, 22, 10, i)),
+    })));
+    expect(await conversationCompactionSummary(db, companyId, chatId, workerId)).toBeNull();
+    const started = await requestCompaction(db, { companyId, issueId: chatId, trigger: "chat_command" });
+    expect(started.status).toBe("started");
+    const runId = wakes.at(-1)!.runId;
+    await db.update(heartbeatRuns).set({ status: "succeeded", resultJson: { summary: `## Goal\n${"Chat summary. ".repeat(30)}` } })
+      .where(eq(heartbeatRuns.id, runId));
+    await onCompactionRunTerminal(db, runId, "succeeded");
+
+    const handoff = await conversationCompactionSummary(db, companyId, chatId, workerId);
+    expect(handoff?.key).toBe("context-compaction");
+    expect(handoff?.body).toContain("Chat summary.");
+    expect(handoff?.body).toContain("chat 7"); // the recent messages come verbatim
+    expect(handoff?.body).not.toContain("chat 0");
+
+    await db.insert(agentTaskSessions).values({ companyId, agentId: workerId, adapterType: "claude_local", taskKey: chatId });
+    expect(await conversationCompactionSummary(db, companyId, chatId, workerId)).toBeNull();
   });
 
   it("marks the compaction failed when the compactor run fails", async () => {

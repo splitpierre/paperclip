@@ -154,6 +154,8 @@ interface TaskChatComposerProps {
   onRunnerGoalReassign?: (
     reassignment: CommentReassignment,
   ) => Promise<void> | void;
+  /** bu-fork: context compaction. `/compact` calls this instead of sending a message. */
+  onCompact?: () => Promise<string>;
 }
 
 export type RunnerGoalComposerCommand =
@@ -414,6 +416,7 @@ export function TaskChatComposer({
   runnerGoalCapability = null,
   onRunnerGoalCommand,
   onRunnerGoalReassign,
+  onCompact,
 }: TaskChatComposerProps) {
   const streamlined = useStreamlinedTaskChatPresentation();
   const stopControl = useComposerStop(onStop, stopPending);
@@ -442,6 +445,7 @@ export function TaskChatComposer({
   const [pendingMode, setPendingMode] = useState<IssueWorkMode>(workMode);
   const [pendingAssignee, setPendingAssignee] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [attachments, setAttachmentState] = useState<ComposerAttachment[]>(
     () =>
       draftKey
@@ -856,6 +860,23 @@ export function TaskChatComposer({
     const submittedAttachments = attachmentsRef.current;
     const submittedAssignee = pendingAssigneeRef.current;
     const trimmed = submittedBody.trim();
+    // bu-fork: context compaction runs in a separate session; nothing is sent to the agent.
+    if (trimmed === "/compact" && onCompact && !queuedEdit) {
+      try {
+        setActionError(null);
+        setActionNotice(await onCompact());
+        bodyRef.current = "";
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = null;
+        if (draftKey) clearDraft(draftKey);
+        setBody("");
+        editorRef.current?.clear();
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    setActionNotice(null);
     const goalCommand = queuedEdit
       ? ({ matched: false } as const)
       : parseRunnerGoalCommand(submittedBody);
@@ -1319,11 +1340,19 @@ export function TaskChatComposer({
               }
               readOnly={disabled || !!uncertainSubmission}
               mentions={mentions}
-              actionCommands={conversationMode ? [{
-                id: "action:new", kind: "action", command: "new", name: "New session",
-                description: "Start fresh context here, preserving conversation history.", aliases: ["new"],
-                disabled,
-              }] : [goalCommandOption]}
+              actionCommands={[
+                ...(conversationMode ? [{
+                  id: "action:new", kind: "action", command: "new", name: "New session",
+                  description: "Start fresh context here, preserving conversation history.", aliases: ["new"],
+                  disabled,
+                } as ActionCommandOption] : [goalCommandOption]),
+                // bu-fork: context compaction
+                ...(onCompact ? [{
+                  id: "action:compact", kind: "action", command: "compact", name: "Compact context",
+                  description: "Summarize older history in a separate run; later turns replay the summary.",
+                  aliases: ["compact"], disabled,
+                } as ActionCommandOption] : []),
+              ]}
               onSubmit={() => void submit()}
               imageUploadHandler={
                 canAcceptFiles ? uploadInlineImage : undefined
@@ -1339,6 +1368,9 @@ export function TaskChatComposer({
             />
           </div>
 
+          {actionNotice && !actionError ? (
+            <p className="px-1 text-xs text-muted-foreground" role="status">{actionNotice}</p>
+          ) : null}
           {actionError ? (
             <p
               className="px-1 text-xs text-destructive"

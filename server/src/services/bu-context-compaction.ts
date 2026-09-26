@@ -158,7 +158,7 @@ export async function requestCompaction(db: Db, input: RequestCompactionInput): 
 
   const conditions = [eq(issueComments.companyId, issue.companyId), eq(issueComments.issueId, issue.id), isNull(issueComments.deletedAt)];
   if (previous?.throughCreatedAt && previous.throughCommentId) {
-    conditions.push(sql`(${issueComments.createdAt}, ${issueComments.id}) > (${previous.throughCreatedAt}, ${previous.throughCommentId})`);
+    conditions.push(sql`(${issueComments.createdAt}, ${issueComments.id}) > (${previous.throughCreatedAt.toISOString()}::timestamptz, ${previous.throughCommentId}::uuid)`);
   }
   if (issue.conversationAgentId && issue.conversationBoundaryCommentId) {
     // Chat: nothing before the current session boundary (/new) belongs to this session.
@@ -349,4 +349,60 @@ export function requestAutoCompaction(db: Db, companyId: string, issueId: string
       if (result.status === "started") logger.info({ issueId, compactionId: result.compactionId }, "context compaction: auto-started");
     })
     .catch((error: unknown) => logger.warn({ err: error, issueId }, "context compaction: auto request failed"));
+}
+
+export const COMPACTION_SUMMARY_KEY = "context-compaction";
+export const COMPACTION_SUMMARY_MAX_CHARS = 16_000;
+
+/**
+ * Chats have no task continuation: their history lives in the provider
+ * session, which a compaction drops. When a chat turn starts without a session
+ * and a compaction is ready, hand the agent the summary plus the messages after
+ * it, in the wake payload's continuation-summary slot.
+ */
+export async function conversationCompactionSummary(
+  db: Db,
+  companyId: string,
+  issueId: string | null,
+  agentId: string,
+): Promise<{ key: string; title: string; body: string; sourceTrust: null; updatedAt: Date } | null> {
+  if (!issueId) return null;
+  const [compaction] = await db
+    .select()
+    .from(issueContextCompactions)
+    .where(and(eq(issueContextCompactions.companyId, companyId), eq(issueContextCompactions.issueId, issueId), eq(issueContextCompactions.status, "ready")))
+    .orderBy(desc(issueContextCompactions.completedAt))
+    .limit(1);
+  if (!compaction?.summaryMarkdown || !compaction.throughCreatedAt || !compaction.throughCommentId) return null;
+  const [session] = await db
+    .select({ id: agentTaskSessions.id })
+    .from(agentTaskSessions)
+    .where(and(eq(agentTaskSessions.companyId, companyId), eq(agentTaskSessions.agentId, agentId), eq(agentTaskSessions.taskKey, issueId)));
+  if (session) return null; // the live session already carries the conversation
+  const [issue] = await db.select().from(issues).where(eq(issues.id, issueId));
+  // A /new after the compaction means the summary belongs to a forgotten session.
+  if (issue?.conversationBoundaryCommentId) {
+    const [boundary] = await db.select({ createdAt: issueComments.createdAt }).from(issueComments)
+      .where(eq(issueComments.id, issue.conversationBoundaryCommentId));
+    if (boundary && boundary.createdAt > compaction.throughCreatedAt) return null;
+  }
+  const recent = await db.select().from(issueComments).where(and(
+    eq(issueComments.companyId, companyId),
+    eq(issueComments.issueId, issueId),
+    isNull(issueComments.deletedAt),
+    sql`(${issueComments.createdAt}, ${issueComments.id}) > (${compaction.throughCreatedAt.toISOString()}::timestamptz, ${compaction.throughCommentId}::uuid)`,
+  )).orderBy(asc(issueComments.createdAt), asc(issueComments.id));
+  const recentText = recent
+    .slice(-12)
+    .map((c) => `### ${c.authorAgentId ? "You (agent)" : c.authorUserId ? "User" : "System"} · ${c.createdAt.toISOString()}\n\n${c.body.trim()}`)
+    .join("\n\n");
+  let body = `${compaction.summaryMarkdown.trim()}\n\n## Most recent messages (verbatim, oldest first)\n\n${recentText || "(none)"}`;
+  if (body.length > COMPACTION_SUMMARY_MAX_CHARS) body = `${body.slice(0, COMPACTION_SUMMARY_MAX_CHARS - 20)}\n[truncated]`;
+  return {
+    key: COMPACTION_SUMMARY_KEY,
+    title: "Summary of this conversation so far (the session was compacted)",
+    body,
+    sourceTrust: null,
+    updatedAt: compaction.completedAt ?? compaction.updatedAt,
+  };
 }

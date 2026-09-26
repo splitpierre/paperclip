@@ -57,6 +57,10 @@ for entry in "${PACKAGES[@]}"; do
   fi
 done
 rm -rf packages/db/dist/migrations && cp -r packages/db/src/migrations packages/db/dist/migrations
+(cd ui && NODE_OPTIONS=--max-old-space-size=4096 npx vite build > /dev/null)
+UI_DIST="$INSTALL/server/ui-dist"
+ui_changed=0
+if ! diff -rq ui/dist "$UI_DIST" > /dev/null 2>&1; then ui_changed=1; fi
 
 echo "== diffing against the installed release"
 plan="$(mktemp)"
@@ -77,8 +81,8 @@ for entry in "${PACKAGES[@]}"; do
 done > "$plan"
 count="$(wc -l < "$plan")"
 sed -E "s#^[^\t]*\t##; s#$HOME#~#" "$plan"
-echo "== $count file(s) to overlay"
-[ "$count" -gt 0 ] || { echo "Nothing to do."; exit 0; }
+echo "== $count file(s) to overlay; UI bundle changed: $ui_changed"
+[ "$count" -gt 0 ] || [ "$ui_changed" = 1 ] || { echo "Nothing to do."; exit 0; }
 [ "$DRY_RUN" = 1 ] && exit 0
 
 echo "== applying pending migrations (additive) while the current server runs"
@@ -90,11 +94,13 @@ while IFS=$'\t' read -r src dst; do
   if [ -f "$dst" ]; then mkdir -p "$backup/files$(dirname "$dst")"; cp -p "$dst" "$backup/files$dst"; else echo "$dst" >> "$backup/new-files.txt"; fi
 done < "$plan"
 git -C "$REPO" rev-parse HEAD > "$backup/commit.txt"
+[ "$ui_changed" = 1 ] && cp -a "$UI_DIST" "$backup/ui-dist"
 echo "== backup: $backup"
 
 echo "== stopping Paperclip"
 systemctl --user stop paperclipai.service
 while IFS=$'\t' read -r src dst; do mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; done < "$plan"
+if [ "$ui_changed" = 1 ]; then rm -rf "$UI_DIST.new" && cp -a "$REPO/ui/dist" "$UI_DIST.new" && rm -rf "$UI_DIST" && mv "$UI_DIST.new" "$UI_DIST"; fi
 echo "== starting Paperclip"
 systemctl --user start paperclipai.service
 for _ in $(seq 1 40); do

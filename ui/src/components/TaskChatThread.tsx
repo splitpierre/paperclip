@@ -1,4 +1,5 @@
 import type { ActivityEvent } from "@paperclipai/shared";
+import { buCompactionApi, describeCompactionRequest } from "../api/bu-compaction";
 import { useProjectCreatedItems } from "@/hooks/useProjectCreatedItems";
 import { requiresExecutionReconciliation } from "@paperclipai/shared";
 import { TaskChatExpansionState } from "@/components/task-chat/expansion-state";
@@ -3031,6 +3032,7 @@ export function TaskChatThread(props: TaskChatThreadProps) {
                       runnerGoalCapability={runnerGoal.data?.capability ?? null}
                       onRunnerGoalCommand={runnerGoal.executeComposerCommand}
                       onRunnerGoalReassign={reassignForRunnerGoal}
+                      onCompact={issueId ? async () => describeCompactionRequest(await buCompactionApi.request(issueId)) : undefined}
                       pendingTakeover={
                         pendingComposerInputs.length > 0
                           ? {

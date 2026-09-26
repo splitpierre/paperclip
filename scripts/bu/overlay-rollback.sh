@@ -14,6 +14,10 @@ if [ -d "$backup/files" ]; then
   (cd "$backup/files" && find . -type f -print) | while read -r f; do cp -p "$backup/files/${f#./}" "/${f#./}"; done
 fi
 [ -f "$backup/new-files.txt" ] && while read -r f; do rm -f "$f"; done < "$backup/new-files.txt"
+if [ -d "$backup/ui-dist" ]; then
+  UI_DIST="$HOME/.paperclip/cli/installs/npm/2026.916.1/node_modules/@paperclipai/server/ui-dist"
+  rm -rf "$UI_DIST" && cp -a "$backup/ui-dist" "$UI_DIST"
+fi
 systemctl --user start paperclipai.service
 for _ in $(seq 1 40); do
   code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/api/health || true)"

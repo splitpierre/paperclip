@@ -1,4 +1,5 @@
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
+import { CompactContextMenuItem } from "../components/bu/CompactContextMenuItem";
 import { agentChatDraft } from "@/lib/agent-chat-draft";
 import { Settings as ChatSettings } from "lucide-react";
 import { agentDetailHref } from "./agent-detail-navigation";
@@ -7220,6 +7221,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   <EyeOff className="h-3 w-3" />
                   Hide this task
                 </button>
+                {issue?.id ? <CompactContextMenuItem issueId={issue.id} /> : null /* bu-fork: context compaction */}
               </PopoverContent>
             </Popover>
           </div>

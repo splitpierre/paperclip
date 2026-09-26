@@ -162,7 +162,8 @@ import {
 import { createHostDuplexObservabilityRecorder } from "./duplex-observability-recorder.js";
 import { incrementToolRuntimeMetricCounter } from "./tool-runtime-metrics.js";
 import { logger } from "../middleware/logger.js";
-import { onCompactionRunTerminal, registerCompactionWakeup } from "./bu-context-compaction.js";
+import { COMPACTION_SUMMARY_KEY, COMPACTION_SUMMARY_MAX_CHARS, conversationCompactionSummary, onCompactionRunTerminal, registerCompactionWakeup } from "./bu-context-compaction.js";
+const summaryCap = (key: string) => (key === COMPACTION_SUMMARY_KEY ? COMPACTION_SUMMARY_MAX_CHARS : 4_000);
 import {
   createGitRemoteAuthProvider,
   resolveManagedGitHubIdentitySelection,
@@ -7600,7 +7601,10 @@ export async function buildPaperclipWakePayload(input: {
   );
   const issueId = readNonEmptyString(input.contextSnapshot.issueId);
   const conversationMode = input.contextSnapshot.conversationMode === true;
-  const continuationSummary = conversationMode ? null : input.continuationSummary ?? null;
+  // bu-fork: context compaction — a compacted chat gets its summary when its session is fresh.
+  const continuationSummary = conversationMode
+    ? (input.agentId ? await conversationCompactionSummary(input.db, input.companyId, issueId, input.agentId) : null)
+    : input.continuationSummary ?? null;
   const agentMessage = parseObject(
     input.contextSnapshot[PAPERCLIP_AGENT_MESSAGE_KEY],
   );
@@ -8120,11 +8124,9 @@ export async function buildPaperclipWakePayload(input: {
       ? {
           key: safeContinuationSummary.key,
           title: safeContinuationSummary.title,
-          body:
-            safeContinuationSummary.body.length > 4_000
-              ? safeContinuationSummary.body.slice(0, 4_000)
-              : safeContinuationSummary.body,
-          bodyTruncated: safeContinuationSummary.body.length > 4_000,
+          // bu-fork: compaction summaries are already bounded and need more room.
+          body: safeContinuationSummary.body.slice(0, summaryCap(safeContinuationSummary.key)),
+          bodyTruncated: safeContinuationSummary.body.length > summaryCap(safeContinuationSummary.key),
           sourceTrust: safeContinuationSummary.sourceTrust ?? null,
           updatedAt: safeContinuationSummary.updatedAt.toISOString(),
         }
