@@ -1,0 +1,5 @@
+ALTER TABLE "chat_endpoints" DROP CONSTRAINT "chat_endpoints_provider_check";--> statement-breakpoint
+ALTER TABLE "chat_external_principals" DROP CONSTRAINT "chat_external_principals_provider_check";--> statement-breakpoint
+CREATE UNIQUE INDEX "chat_endpoints_whatsapp_number_uq" ON "chat_endpoints" USING btree ("bot_external_id") WHERE "chat_endpoints"."provider" = 'whatsapp' and "chat_endpoints"."status" <> 'archived' and "chat_endpoints"."bot_external_id" is not null;--> statement-breakpoint
+ALTER TABLE "chat_endpoints" ADD CONSTRAINT "chat_endpoints_provider_check" CHECK ("chat_endpoints"."provider" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon', 'whatsapp'));--> statement-breakpoint
+ALTER TABLE "chat_external_principals" ADD CONSTRAINT "chat_external_principals_provider_check" CHECK ("chat_external_principals"."provider" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon', 'whatsapp'));
