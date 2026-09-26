@@ -1939,6 +1939,45 @@ export function stringifyPaperclipWakePayload(
   return JSON.stringify(normalized);
 }
 
+// bu-fork: Linux rejects any single environment string over 128 KiB
+// (MAX_ARG_STRLEN), and the spawn then fails with E2BIG. Long task histories
+// pushed PAPERCLIP_WAKE_PAYLOAD_JSON past that. The prompt already carries the
+// full wake context, so the env copy is a convenience: cap it and tell the
+// agent to fetch the thread when the heavy parts were dropped.
+export const WAKE_PAYLOAD_ENV_MAX_BYTES = 32 * 1024;
+
+export function boundWakePayloadForEnv(
+  json: string | null,
+  maxBytes = WAKE_PAYLOAD_ENV_MAX_BYTES,
+): string | null {
+  if (json === null || Buffer.byteLength(json, "utf8") <= maxBytes) return json;
+  let payload: Record<string, unknown>;
+  try {
+    payload = parseObject(JSON.parse(json));
+  } catch {
+    return null;
+  }
+  const fits = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes;
+  const marker = { envTruncated: true, fallbackFetchNeeded: true };
+  const withoutHistory = { ...payload, executionContinuation: null, ...marker };
+  if (fits(withoutHistory)) return JSON.stringify(withoutHistory);
+  const issue = parseObject(payload.issue);
+  const hasIssue = Object.keys(issue).length > 0;
+  const lean = {
+    ...withoutHistory,
+    comments: [],
+    continuationSummary: null,
+    issue: hasIssue ? { ...issue, description: null, descriptionTruncated: true } : null,
+  };
+  if (fits(lean)) return JSON.stringify(lean);
+  return JSON.stringify({
+    reason: payload.reason ?? null,
+    issue: hasIssue ? { id: issue.id ?? null, identifier: issue.identifier ?? null } : null,
+    commentIds: Array.isArray(payload.commentIds) ? payload.commentIds.slice(-20) : [],
+    ...marker,
+  });
+}
+
 export function isPaperclipRecoveryWakePayload(value: unknown): boolean {
   const normalized = normalizePaperclipWakePayload(value);
   return Boolean(

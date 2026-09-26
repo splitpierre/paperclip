@@ -37,6 +37,7 @@ import {
   selectPaperclipTaskMarkdown,
   isPaperclipRecoveryWakePayload,
   resolveLegacyPaperclipDesiredSkillNames,
+  boundWakePayloadForEnv,
   stringifyPaperclipWakePayload,
   refreshPaperclipWorkspaceEnvForExecution,
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
@@ -294,7 +295,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (approvalId) env.PAPERCLIP_APPROVAL_ID = approvalId;
     if (approvalStatus) env.PAPERCLIP_APPROVAL_STATUS = approvalStatus;
     if (linkedIssueIds.length > 0) env.PAPERCLIP_LINKED_ISSUE_IDS = linkedIssueIds.join(",");
-    if (wakePayloadJson) env.PAPERCLIP_WAKE_PAYLOAD_JSON = wakePayloadJson;
+    if (wakePayloadJson) env.PAPERCLIP_WAKE_PAYLOAD_JSON = boundWakePayloadForEnv(wakePayloadJson) ?? "{}"; // bu-fork: E2BIG cap
     refreshPaperclipWorkspaceEnvForExecution({
       env,
       envConfig,
