@@ -4,14 +4,9 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
 
 ## Requested features (from the fork kickoff, 2026-09-26)
 
-- [ ] **Rename agents from the UI.** Today names are changed through the API/CLI (`agents/apply_personas.py`
-      in `bu-paperclip-adapters`). Add an inline rename on the agent page.
+- [ ] Mobile experience needs careful review and testing, some input fields make things unusable in some places
 - [ ] **Trello connector.** Boards/lists/cards as a connection agents can use (read cards, create/move
       cards, comment). Decide: app definition + tool connection vs. plugin.
-- [ ] **Members page (`/BUD/company/settings/members`) rework.**
-  - [ ] Owner can create members directly from the UI (email + role, set or send a password), no invite flow.
-  - [ ] **Project-scoped members**: add a person to specific projects only, as *viewer* or *operator*,
-        without company-wide access.
 
 ## Planned
 
@@ -45,6 +40,17 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
 - [ ] Recovery blocks ("Automatic recovery stopped", `legacy_execution_requires_reconciliation`) have no
       UI action; add a "confirm nothing happened, resume" button (the API is
       `POST /api/issues/:id/recovery-actions/resolve` with `executionReconciliation`).
+- [ ] **DB connection leak: `listPendingFinalizeBlockerIssueIds` (`server/src/services/issues.ts:2367`).**
+      2026-09-27: 10 connections stuck `idle in transaction` for 38+ min, all mid the exact same
+      `workspace_operations` query (Postgres state `ClientRead` — it already answered; the app just never
+      sent COMMIT), all opened within ~1s of each other. Exhausted the whole pool and took the server down
+      (even `/api/health` hung). Called from `listIssueDependencyReadinessMap`, used on ~every agent wake
+      (`heartbeat.ts:19933`) and issue-listing endpoints — the simultaneous cluster of 10 points at a batch
+      wake/recovery sweep where something *after* this query, inside the same transaction, hangs forever.
+      Not yet caught live (cleared it by killing the connections before catching the exact hang point).
+      Mitigation proposed, not yet applied: set `idle_in_transaction_session_timeout` (e.g. 5 min) on the
+      Paperclip DB role so this can't repeat as a full outage. Still open: reproduce with query logging and
+      find the actual hung step.
 
 ## Housekeeping
 
