@@ -64,6 +64,7 @@ import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
 import { buCompactionRoutes } from "./routes/bu-compaction.js";
 import { buTranscribeRoutes } from "./routes/bu-transcribe.js";
+import { buRecoveryRoutes } from "./routes/bu-recovery.js";
 import { issueTreeControlRoutes } from "./routes/issue-tree-control.js";
 import { caseRoutes } from "./routes/cases.js";
 import { fileResourceRoutes } from "./routes/file-resources.js";
@@ -823,6 +824,7 @@ export async function createApp(
   // route prefixes, so this dependency does not change issue-route precedence.
   api.use(buCompactionRoutes(db)); // bu-fork: context compaction
   api.use(buTranscribeRoutes()); // bu-fork: composer mic transcription
+  api.use(buRecoveryRoutes(db)); // bu-fork: recovery-stopped diagnosis
   api.use(issueRoutes(db, opts.storageService, {
     chatRunRetries: chatChannels,
     feedbackExportService: opts.feedbackExportService,
