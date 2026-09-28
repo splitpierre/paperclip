@@ -37,9 +37,12 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
       Fix: use `setup-token` in the local sign-in flow, or store and refresh the full OAuth credential.
 - [ ] Stranded-task recovery wakes an agent every minute on any assigned task left `in_progress`
       (`recovery/service.ts`, `issue_continuation_needed`). Consider a longer, backed-off interval.
-- [ ] Recovery blocks ("Automatic recovery stopped", `legacy_execution_requires_reconciliation`) have no
-      UI action; add a "confirm nothing happened, resume" button (the API is
-      `POST /api/issues/:id/recovery-actions/resolve` with `executionReconciliation`).
+- [x] 2026-09-28: **Resume button for "Automatic recovery stopped".** `GET /issues/:id/recovery-actions/:actionId/diagnose`
+      (`bu-recovery-diagnosis.ts`) proves "this run touched nothing" from its execution workspace (git:
+      clean, 0 ahead, no matching remote branch, or no workspace at all) and its log (no tool-call
+      markers); safe only when both hold. The UI's "Resume" button (`ExecutionBlockerNotice.tsx`) diagnoses,
+      then submits through Paperclip's own `recovery-actions/resolve` — never bypasses it. Unsafe cases show
+      the reason and change nothing, same as before. Not yet deployed via `overlay-deploy.sh`.
 - [ ] **DB connection leak: `listPendingFinalizeBlockerIssueIds` (`server/src/services/issues.ts:2367`).**
       2026-09-27: 10 connections stuck `idle in transaction` for 38+ min, all mid the exact same
       `workspace_operations` query (Postgres state `ClientRead` — it already answered; the app just never
