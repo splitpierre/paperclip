@@ -14,6 +14,35 @@ function providerSlugForAdapterType(type: string): string {
   }
 }
 
+export interface CachedQuotaWindows {
+  asOf: string;
+  results: ProviderQuotaResult[];
+}
+
+// bu-fork: in-memory cache for the agent-readable /quota-windows/cached route.
+// fetchAllQuotaWindows() below is genuinely expensive (spawns `claude`/`codex`
+// subprocesses and/or hits live provider usage APIs, up to QUOTA_PROVIDER_TIMEOUT_MS
+// per adapter), which is why it's kept board-only in routes/costs.ts. This cache lets
+// Ária (and other agents) check quota before delegating without paying that cost on
+// every heartbeat. Refreshed on a timer from server/src/app.ts, not lazily on read.
+let quotaWindowsCache: CachedQuotaWindows | null = null;
+
+/** Refreshes the in-memory quota-windows cache from live providers. Safe to call on a timer. */
+export async function refreshQuotaWindowsCache(): Promise<CachedQuotaWindows> {
+  const results = await fetchAllQuotaWindows();
+  quotaWindowsCache = { asOf: new Date().toISOString(), results };
+  return quotaWindowsCache;
+}
+
+/**
+ * Returns the last cached quota snapshot with no live provider calls — cheap enough to
+ * expose to agent callers. Returns null only before the first refresh has ever
+ * completed (e.g. immediately after server startup, for at most one refresh interval).
+ */
+export function getCachedQuotaWindows(): CachedQuotaWindows | null {
+  return quotaWindowsCache;
+}
+
 /**
  * Asks each registered adapter for its provider quota windows and aggregates the results.
  * Adapters that don't implement getQuotaWindows() are silently skipped.

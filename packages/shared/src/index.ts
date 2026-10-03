@@ -1614,6 +1614,7 @@ export type {
   OAuthRedirectConstraints,
   QuotaWindow,
   ProviderQuotaResult,
+  CachedQuotaWindows,
 } from "./types/index.js";
 export { WORKSPACE_READINESS_STATES } from "./types/index.js";
 export {

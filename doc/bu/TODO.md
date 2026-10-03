@@ -37,12 +37,28 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
       Fix: use `setup-token` in the local sign-in flow, or store and refresh the full OAuth credential.
 - [ ] Stranded-task recovery wakes an agent every minute on any assigned task left `in_progress`
       (`recovery/service.ts`, `issue_continuation_needed`). Consider a longer, backed-off interval.
+- [ ] **`DELETE /projects/:id` 500s once the project has cost history.** `routes/projects.js:689` deletes
+      the `projects` row directly; Postgres rejects it with `cost_events_project_id_projects_id_fk` because
+      nothing deletes/reassigns that project's `cost_events` rows first. Hit 2026-09-28 migrating
+      `micro-zombies` from Bu Digital to Split Systems (issues deleted fine; the project delete itself
+      failed). Worked around by archiving the project instead of deleting it. Fix: either cascade/null out
+      `cost_events.project_id` on project delete, or have the route pre-check and return a clear 409
+      instead of a raw FK 500.
 - [x] 2026-09-28: **Resume button for "Automatic recovery stopped".** `GET /issues/:id/recovery-actions/:actionId/diagnose`
       (`bu-recovery-diagnosis.ts`) proves "this run touched nothing" from its execution workspace (git:
       clean, 0 ahead, no matching remote branch, or no workspace at all) and its log (no tool-call
       markers); safe only when both hold. The UI's "Resume" button (`ExecutionBlockerNotice.tsx`) diagnoses,
       then submits through Paperclip's own `recovery-actions/resolve` — never bypasses it. Unsafe cases show
-      the reason and change nothing, same as before. Not yet deployed via `overlay-deploy.sh`.
+      the reason and change nothing, same as before.
+      - [x] 2026-10-03: **Fixed a dead end found live on BUD-80 and SPL-29.** The diagnosis bailed out
+            on any recovery action whose `status !== "active"` — but `execution-blocker.ts`'s own
+            predicate (its "effective no-replay hold" comment) keeps surfacing a *resolved/cancelled*
+            action as the current blocker when its evidence carries `automaticRecovery.replay ===
+            "blocked"`, and the native `recovery-actions/resolve` handler already knows how to reopen
+            exactly that action by id. Every such case had no automated path at all — had to resolve
+            both by hand through the raw API. `diagnoseRecoveryAction` now recognizes that case and
+            runs the normal safety checks on it instead of refusing outright; 3 new tests added
+            (reopenable-and-safe, reopenable-but-unverified-side-effects, resolved-with-no-replay-hold).
 - [ ] **DB connection leak: `listPendingFinalizeBlockerIssueIds` (`server/src/services/issues.ts:2367`).**
       2026-09-27: 10 connections stuck `idle in transaction` for 38+ min, all mid the exact same
       `workspace_operations` query (Postgres state `ClientRead` — it already answered; the app just never

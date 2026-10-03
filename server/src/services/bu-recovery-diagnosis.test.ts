@@ -39,7 +39,12 @@ const support = await getEmbeddedPostgresTestSupport();
     await writeFile(file, content);
   }
 
-  async function makeIssue(cause: string, status: "active" | "resolved", runOverrides: { status?: string; logRef?: string | null } = {}) {
+  async function makeIssue(
+    cause: string,
+    status: "active" | "resolved",
+    runOverrides: { status?: string; logRef?: string | null } = {},
+    evidenceExtra: Record<string, unknown> = {},
+  ) {
     const issueId = randomUUID();
     const runId = randomUUID();
     await db.insert(issues).values({ id: issueId, companyId, title: "t", status: "blocked", assigneeAgentId: agentId });
@@ -50,7 +55,7 @@ const support = await getEmbeddedPostgresTestSupport();
     });
     const [action] = await db.insert(issueRecoveryActions).values({
       companyId, sourceIssueId: issueId, kind: "active_run_watchdog", status, cause, fingerprint: randomUUID(),
-      evidence: { runId }, nextAction: "test",
+      evidence: { runId, ...evidenceExtra }, nextAction: "test",
     }).returning({ id: issueRecoveryActions.id });
     return { issueId, runId, actionId: action!.id };
   }
@@ -107,6 +112,46 @@ const support = await getEmbeddedPostgresTestSupport();
 
   it("is unsafe once the recovery action is already resolved", async () => {
     const { issueId, actionId } = await makeIssue("legacy_execution_requires_reconciliation", "resolved");
+    const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
+    expect(result.safe).toBe(false);
+  });
+
+  // bu-fork: execution-blocker.ts's own predicate keeps surfacing a *resolved* action as
+  // the current blocker when its evidence carries automaticRecovery.replay === "blocked"
+  // (its own comment calls this an "effective no-replay hold") -- and the native
+  // POST /issues/:id/recovery-actions/resolve handler already knows how to reopen exactly
+  // that action by id (routes/issues.ts). Hit live on BUD-80 and SPL-29, 2026-10-03: the
+  // diagnosis bailed out on any non-"active" status, so this provably-safe, system-marked-
+  // reopenable case had no automated path at all -- a human had to resolve it by hand.
+  it("is safe for a resolved action held open for replay, and still runs the normal safety checks", async () => {
+    const { issueId, actionId } = await makeIssue(
+      "legacy_execution_requires_reconciliation", "resolved", { logRef: null },
+      { automaticRecovery: { replay: "blocked" } },
+    );
+    const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
+    expect(result.safe).toBe(true);
+    expect(result.reconciliation?.actionId).toBe(actionId);
+    expect(result.reconciliation?.executionReconciliation.actionOutcome).toBe("not_performed");
+  });
+
+  it("is still unsafe for a resolved+replay-blocked action whose run has unverified side effects", async () => {
+    const { issueId, actionId, runId } = await makeIssue(
+      "legacy_execution_requires_reconciliation", "resolved", {},
+      { automaticRecovery: { replay: "blocked" } },
+    );
+    const logRef = `${companyId}/${agentId}/${runId}.ndjson`;
+    await db.update(heartbeatRuns).set({ logRef }).where(eq(heartbeatRuns.id, runId));
+    await writeRunLog(logRef, '{"type":"assistant"}\n{"type":"tool_use","name":"Bash"}\n');
+    const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toMatch(/tool-call marker/);
+  });
+
+  it("is unsafe for a resolved action with no replay hold (the ordinary already-done case)", async () => {
+    const { issueId, actionId } = await makeIssue(
+      "legacy_execution_requires_reconciliation", "resolved", { logRef: null },
+      { automaticRecovery: { replay: "allowed" } },
+    );
     const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
     expect(result.safe).toBe(false);
   });

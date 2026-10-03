@@ -112,7 +112,25 @@ export async function diagnoseRecoveryAction(
   const [action] = await db.select().from(issueRecoveryActions).where(and(
     eq(issueRecoveryActions.id, input.actionId), eq(issueRecoveryActions.companyId, input.companyId),
   ));
-  if (!action || action.status !== "active") return { safe: false, reason: "This recovery action is no longer active." };
+  if (!action) return { safe: false, reason: "This recovery action is no longer active." };
+  if (action.status !== "active") {
+    // execution-blocker.ts's own predicate (see its "effective no-replay hold" comment)
+    // keeps surfacing a *settled* action as the current blocker when its evidence carries
+    // automaticRecovery.replay === "blocked" — and routes/issues.ts's resolve handler
+    // already knows how to reopen exactly that action by id. Bailing out here on any
+    // non-"active" status (the original check) made every such case un-resumable through
+    // this diagnosis, even though the resolve endpoint it hands off to would accept it.
+    const automaticRecovery = (action.evidence as { automaticRecovery?: { replay?: unknown } } | null)?.automaticRecovery;
+    const reopenable = (action.status === "resolved" || action.status === "cancelled") && automaticRecovery?.replay === "blocked";
+    if (!reopenable) {
+      return {
+        safe: false,
+        reason: action.status === "resolved" || action.status === "cancelled"
+          ? "This recovery action already settled and isn't held open for a replay; nothing further to reconcile."
+          : "This recovery action is no longer active.",
+      };
+    }
+  }
   if (!requiresExecutionReconciliation(action.cause)) {
     return { safe: false, reason: `"${action.cause}" isn't a reconciliation-required cause; this needs a human decision through the normal path.` };
   }

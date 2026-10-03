@@ -18,6 +18,11 @@ DRY_RUN=0; [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 BASE_VERSION="2026.916.1"
 INSTALL="$HOME/.paperclip/cli/installs/npm/$BASE_VERSION/node_modules/@paperclipai"
+# The CLI ships as its own unscoped npm package ("paperclipai", not "@paperclipai/cli"),
+# a single esbuild-bundled dist/index.js rather than a tsc dist/ tree, and isn't
+# restarted (it's invoked fresh per command) -- built and diffed separately below,
+# outside the generic PACKAGES loop.
+CLI_INSTALL="$HOME/.paperclip/cli/installs/npm/$BASE_VERSION/node_modules/paperclipai"
 BACKUPS="$HOME/.paperclip/cli/overlay-backups"
 # Runtime packages the fork adds (installed outside the managed tree, then linked in).
 RUNTIME_DEPS_DIR="$HOME/.paperclip/cli/bu-runtime-deps"
@@ -30,6 +35,9 @@ EXTRA_ROOTS=(/data/projects/paperclip-adapters/node_modules/@paperclipai)
 [ -d "$INSTALL/server" ] || { echo "ERROR: $INSTALL not found (installed version changed?)"; exit 1; }
 installed_version="$(node -p "require('$INSTALL/server/package.json').version")"
 [ "$installed_version" = "$BASE_VERSION" ] || { echo "ERROR: installed server is $installed_version, fork base is $BASE_VERSION"; exit 1; }
+[ -f "$CLI_INSTALL/package.json" ] || { echo "ERROR: $CLI_INSTALL not found (installed version changed?)"; exit 1; }
+cli_installed_version="$(node -p "require('$CLI_INSTALL/package.json').version")"
+[ "$cli_installed_version" = "$BASE_VERSION" ] || { echo "ERROR: installed CLI is $cli_installed_version, fork base is $BASE_VERSION"; exit 1; }
 
 # workspace dir -> installed package dir name
 PACKAGES=(
@@ -60,6 +68,7 @@ for entry in "${PACKAGES[@]}"; do
   fi
 done
 rm -rf packages/db/dist/migrations && cp -r packages/db/src/migrations packages/db/dist/migrations
+(cd cli && npx tsc --noEmit && npm run build > /dev/null)
 (cd ui && NODE_OPTIONS=--max-old-space-size=4096 npx vite build > /dev/null)
 UI_DIST="$INSTALL/server/ui-dist"
 ui_changed=0
@@ -82,6 +91,8 @@ for entry in "${PACKAGES[@]}"; do
     done
   done
 done > "$plan"
+cli_src="$REPO/cli/dist/index.js"; cli_dst="$CLI_INSTALL/dist/index.js"
+if [ ! -f "$cli_dst" ] || ! cmp -s "$cli_src" "$cli_dst"; then echo "$cli_src	$cli_dst" >> "$plan"; fi
 count="$(wc -l < "$plan")"
 sed -E "s#^[^\t]*\t##; s#$HOME#~#" "$plan"
 echo "== $count file(s) to overlay; UI bundle changed: $ui_changed"

@@ -178,10 +178,15 @@ import { COMPANY_IMPORT_API_PATH } from "./routes/company-import-paths.js";
 import { apiCompression } from "./middleware/api-compression.js";
 import { chatWebhookBodyParser } from "./middleware/chat-webhook-body.js";
 import { createChatWebhookDiagnostics } from "./services/chat-webhook-diagnostics.js";
+import { refreshQuotaWindowsCache } from "./services/quota-windows.js";
 
 type UiMode = "none" | "static" | "vite-dev";
 const FEEDBACK_EXPORT_FLUSH_INTERVAL_MS = 5_000;
 const CHAT_PUBLICATION_FLUSH_INTERVAL_MS = 1_000;
+// bu-fork: keeps the agent-readable quota-windows cache warm (see
+// services/quota-windows.ts). 3 minutes balances staleness against the cost of the
+// live provider calls this triggers (subprocess spawns / provider usage APIs).
+const QUOTA_WINDOWS_REFRESH_INTERVAL_MS = 3 * 60_000;
 const VITE_DEV_ASSET_PREFIXES = [
   "/@fs/",
   "/@id/",
@@ -1204,6 +1209,19 @@ export async function createApp(
       IMPORT_TRANSFER_SPOOL_SWEEP_INTERVAL_MS,
     );
   importTransferSweepTimer.unref?.();
+  // bu-fork: keep the agent-readable quota-windows cache warm (services/quota-windows.ts,
+  // routes/costs.ts's /quota-windows/cached). Same setInterval + unref + shutdown-clear
+  // shape as the feedback export flush above. Fire once at startup too, fire-and-forget
+  // so a slow/unreachable provider doesn't delay server boot.
+  const refreshQuotaWindows = () => {
+    refreshQuotaWindowsCache().catch((err) => {
+      logger.error({ err }, "quota windows cache refresh failed");
+    });
+  };
+  let quotaWindowsRefreshTimer: ReturnType<typeof setInterval> | null =
+    setInterval(refreshQuotaWindows, QUOTA_WINDOWS_REFRESH_INTERVAL_MS);
+  quotaWindowsRefreshTimer.unref?.();
+  refreshQuotaWindows();
   // Startup only (never on the hourly interval — that would kill live
   // applies): apply jobs are in-memory in this single process, so any run
   // still "applying" now was interrupted by the previous shutdown and would
@@ -1308,6 +1326,10 @@ export async function createApp(
       if (importTransferSweepTimer) {
         clearInterval(importTransferSweepTimer);
         importTransferSweepTimer = null;
+      }
+      if (quotaWindowsRefreshTimer) {
+        clearInterval(quotaWindowsRefreshTimer);
+        quotaWindowsRefreshTimer = null;
       }
       devWatcher?.close();
       viteHtmlRenderer?.dispose();
