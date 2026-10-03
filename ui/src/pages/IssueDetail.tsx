@@ -1,3 +1,5 @@
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentIdentity } from "@/components/AgentIdentity";
 import { clearLegacyChatMessageRequests } from "@/lib/chat-message-request";
 import { CompactContextMenuItem } from "../components/bu/CompactContextMenuItem";
 import { agentChatDraft } from "@/lib/agent-chat-draft";
@@ -197,7 +199,6 @@ import {
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
 import type { MarkdownExternalReferenceMap } from "../components/MarkdownBody";
 import { IssuesList } from "../components/IssuesList";
-import { AgentIcon } from "../components/AgentIconPicker";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
 import { IssueFieldChangeReceipt } from "../components/IssueFieldChangeReceipt";
 import { IssueWriteDenialNotice } from "../components/IssueWriteDenialNotice";
@@ -289,6 +290,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatIssueActivityAction } from "@/lib/activity-format";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { buildIssuePropertiesPanelKey } from "../lib/issue-properties-panel-key";
+import { openSkillPanelState, shouldSuppressTaskPanelUntilPlan } from "../lib/task-side-panel-state";
 import {
   buildAnsweredQuestionsDeliveryText,
   buildIssueThreadInteractionSummary,
@@ -663,7 +665,7 @@ function ActorIdentity({
   const id = evt.actorId;
   if (evt.actorType === "agent") {
     const agent = agentMap.get(id);
-    return <Identity name={agent?.name ?? id.slice(0, 8)} size="sm" />;
+    return <AgentIdentity agent={agent ?? { id, name: id.slice(0, 8) }} size="sm" />;
   }
   if (evt.actorType === "system") return <Identity name="System" size="sm" />;
   if (evt.actorType === "user") {
@@ -680,6 +682,7 @@ function ActorIdentity({
 }
 
 export type AttributionActor = {
+  appearance?: Agent["appearance"];
   kind: "agent" | "user";
   id: string;
   name: string;
@@ -710,36 +713,26 @@ function AttributionAvatar({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Avatar
-          size="xs"
-          shape={actor.kind === "agent" ? "square" : "circle"}
-          aria-label={accessibleLabel}
-          data-testid={`issue-${testIdLabel}-avatar`}
-          className="ring-2 ring-background"
-        >
-          {actor.avatarUrl ? (
-            <AvatarImage src={actor.avatarUrl} alt="" />
-          ) : null}
-          <AvatarFallback>{attributionInitials(actor.name)}</AvatarFallback>
-        </Avatar>
+        <span aria-label={accessibleLabel} data-testid={`issue-${testIdLabel}-avatar`}>
+          {actor.kind === "agent" ? <AgentAvatar agent={actor} size={20} /> : (
+            <Avatar size="xs" className="ring-2 ring-background">
+              {actor.avatarUrl ? <AvatarImage src={actor.avatarUrl} alt="" /> : null}
+              <AvatarFallback>{attributionInitials(actor.name)}</AvatarFallback>
+            </Avatar>
+          )}
+        </span>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={6} className="px-2 py-1.5">
         <div
           className="flex items-center gap-2"
           data-testid={`issue-${testIdLabel}-tooltip`}
         >
-          <Avatar
-            size="sm"
-            shape={actor.kind === "agent" ? "square" : "circle"}
-            className="ring-1 ring-background/30"
-          >
-            {actor.avatarUrl ? (
-              <AvatarImage src={actor.avatarUrl} alt="" />
-            ) : null}
-            <AvatarFallback className="bg-background/20 text-background">
-              {attributionInitials(actor.name)}
-            </AvatarFallback>
-          </Avatar>
+          {actor.kind === "agent" ? <AgentAvatar agent={actor} size={32} /> : (
+            <Avatar size="sm" className="ring-1 ring-background/30">
+              {actor.avatarUrl ? <AvatarImage src={actor.avatarUrl} alt="" /> : null}
+              <AvatarFallback>{attributionInitials(actor.name)}</AvatarFallback>
+            </Avatar>
+          )}
           <div className="min-w-0">
             <div className="text-(length:--text-nano) font-medium uppercase leading-none text-background/70">
               {label}
@@ -777,6 +770,7 @@ function IssueAttributionByline({
     ? {
         kind: "agent",
         id: issue.assigneeAgentId,
+        appearance: agentMap.get(issue.assigneeAgentId)?.appearance,
         name:
           agentMap.get(issue.assigneeAgentId)?.name ??
           issue.assigneeAgentId.slice(0, 8),
@@ -798,6 +792,7 @@ function IssueAttributionByline({
       ? {
           kind: "agent",
           id: originatingActor.id,
+          appearance: agentMap.get(originatingActor.id)?.appearance,
           name:
             agentMap.get(originatingActor.id)?.name ??
             originatingActor.id.slice(0, 8),
@@ -1182,6 +1177,7 @@ function InboxMobileToolbar({
 }
 
 type IssueDetailChatTabProps = {
+  onOpenSkill?: (skillId: string, name: string) => void;
   issueId: string;
   companyId: string;
   projectId: string | null;
@@ -1330,6 +1326,7 @@ type IssueDetailChatTabProps = {
 };
 
 const IssueDetailChatTab = memo(function IssueDetailChatTab({
+  onOpenSkill,
   issueId,
   companyId,
   projectId,
@@ -1566,6 +1563,8 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           tone: "success",
         });
       }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.issues.runs(issueId),
       });
@@ -2316,6 +2315,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           <ThreadComponent
             key={conversationMode ? draftKey : issueId}
             {...(!classicTaskInterfaceEnabled ? { creationActivity: resolvedActivity } : {})}
+            onOpenSkill={onOpenSkill}
             initialHistoryPending={!!issueId && (
               initialHistoryPending ||
               commentsInitialLoading ||
@@ -2898,6 +2898,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     requestId: number;
     handled?: boolean;
   } | null>(null);
+  const [openSkill, setOpenSkill] = useState<{ id: string; name: string } | null>(null);
+  const handleSkillOpened = useCallback((skillId: string) => {
+    setOpenSkill((current) => current?.id === skillId ? null : current);
+  }, []);
   const [documentDeepLink, setDocumentDeepLink] = useState<
     (IssuePropertiesDocumentDeepLink & { issueId: string }) | null
   >(null);
@@ -3577,14 +3581,26 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     panelBeforePlanOverrideIssueId === issue?.id;
   const suppressPanelUntilPlan =
     shouldDeferPanelUntilPlan &&
-    !deferredPanelPlanDoc &&
-    !panelBeforePlanOverride;
+    shouldSuppressTaskPanelUntilPlan({
+      deferredPlanAvailable: Boolean(deferredPanelPlanDoc),
+      panelBeforePlanOverride,
+    });
   const openTaskSidePanel = useCallback(() => {
     if (suppressPanelUntilPlan && issue?.id) {
       setPanelBeforePlanOverrideIssueId(issue.id);
     }
     setPanelVisible(true);
   }, [issue?.id, setPanelVisible, suppressPanelUntilPlan]);
+  const handleOpenSkill = useCallback((skillId: string, name: string) => {
+    const next = openSkillPanelState(
+      { panelBeforePlanOverrideIssueId },
+      { id: skillId, name }, issue?.id ?? null, suppressPanelUntilPlan,
+    );
+    setOpenSkill(next.skill);
+    setPanelBeforePlanOverrideIssueId(next.panelBeforePlanOverrideIssueId);
+    setPanelVisible(true);
+    if (isMobile) setMobilePropsOpen(true);
+  }, [isMobile, issue?.id, panelBeforePlanOverrideIssueId, setPanelVisible, suppressPanelUntilPlan]);
   const revealNewArtifact = useCallback(() => {
     if (!issue?.id) return;
     setDocumentDeepLink(null);
@@ -5600,6 +5616,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       checkingMonitorNow: checkIssueMonitorNow.isPending,
       documentDeepLink:
         documentDeepLink?.issueId === panelIssue.id ? documentDeepLink : null,
+      openSkillId: openSkill?.id ?? null,
+      openSkillName: openSkill?.name ?? null,
+      onSkillOpened: handleSkillOpened,
     };
     if (taskChatShellEnabled) {
       openPanel(
@@ -5634,6 +5653,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     issuePanelKey,
     openNewSubIssue,
     openPanel,
+    openSkill,
+    handleSkillOpened,
     panelChildIssues,
     panelIssue,
     suppressPanelUntilPlan,
@@ -7666,6 +7687,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
               )}
               {resolvedDetailTab === "chat" ? (
                 <IssueDetailChatTab
+                  onOpenSkill={handleOpenSkill}
                   threadHeader={<>{taskChatThreadHeader}{instanceExperimentalSettings?.enableChatConnectors && <EmailTaskActivity key={issue.id} companyId={issue.companyId} issueId={issue.id} />}</>}
                   issueBrief={
                     // Suppress the seeded-description bubble for the onboarding first
@@ -7680,7 +7702,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                             ? (agentMap.get(issue.createdByAgentId)?.name ??
                               "Agent")
                             : undefined,
-                          agentIcon: issue.createdByAgentId
+                          agent: issue.createdByAgentId ? agentMap.get(issue.createdByAgentId) ?? { id: issue.createdByAgentId } : undefined,
+                        agentIcon: issue.createdByAgentId
                             ? agentMap.get(issue.createdByAgentId)?.icon
                             : undefined,
                           createdAt: issue.createdAt,
@@ -8097,6 +8120,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     artifactsOpenRequestId={isMobile && !artifactsOpenRequest?.handled && artifactsOpenRequest?.issueId === issue.id
                       ? artifactsOpenRequest.requestId : undefined}
                     onArtifactsOpened={handleArtifactsOpened}
+                    openSkillId={openSkill?.id ?? null}
+                    openSkillName={openSkill?.name ?? null}
+                    onSkillOpened={handleSkillOpened}
                     documentDeepLink={
                       documentDeepLink?.issueId === issue.id
                         ? documentDeepLink

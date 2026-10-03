@@ -1,6 +1,6 @@
 {
-  "id": "a979b5e1-2762-45bf-8d31-aa98dd6c0a0f",
-  "prevId": "089d5342-40fc-4f24-923c-3c6f9c3f6522",
+  "id": "8d202a5a-5d6b-44d9-9336-3bb39a8b99bc",
+  "prevId": "861a2815-1418-4c71-a77b-d0e2e9566413",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2037,6 +2037,12 @@
         "icon": {
           "name": "icon",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appearance": {
+          "name": "appearance",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -6846,22 +6852,6 @@
           "method": "btree",
           "with": {}
         },
-        "chat_endpoints_whatsapp_number_uq": {
-          "name": "chat_endpoints_whatsapp_number_uq",
-          "columns": [
-            {
-              "expression": "bot_external_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"chat_endpoints\".\"provider\" = 'whatsapp' and \"chat_endpoints\".\"status\" <> 'archived' and \"chat_endpoints\".\"bot_external_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "chat_endpoints_live_discord_bot_external_uq": {
           "name": "chat_endpoints_live_discord_bot_external_uq",
           "columns": [
@@ -7020,7 +7010,7 @@
         },
         "chat_endpoints_provider_check": {
           "name": "chat_endpoints_provider_check",
-          "value": "\"chat_endpoints\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon', 'whatsapp')"
+          "value": "\"chat_endpoints\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon')"
         },
         "chat_endpoints_status_check": {
           "name": "chat_endpoints_status_check",
@@ -7205,7 +7195,7 @@
       "checkConstraints": {
         "chat_external_principals_provider_check": {
           "name": "chat_external_principals_provider_check",
-          "value": "\"chat_external_principals\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon', 'whatsapp')"
+          "value": "\"chat_external_principals\".\"provider\" in ('slack', 'github', 'discord', 'microsoft-teams', 'telegram', 'agentmail', 'imessage-photon')"
         },
         "chat_external_principals_kind_check": {
           "name": "chat_external_principals_kind_check",
@@ -25068,295 +25058,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.issue_context_compactions": {
-      "name": "issue_context_compactions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'queued'"
-        },
-        "trigger": {
-          "name": "trigger",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_by_user_id": {
-          "name": "requested_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requested_by_agent_id": {
-          "name": "requested_by_agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "through_comment_id": {
-          "name": "through_comment_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "through_created_at": {
-          "name": "through_created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previous_compaction_id": {
-          "name": "previous_compaction_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "summary_markdown": {
-          "name": "summary_markdown",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_message_count": {
-          "name": "source_message_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "source_bytes": {
-          "name": "source_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "summary_bytes": {
-          "name": "summary_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archive_path": {
-          "name": "archive_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archive_sha256": {
-          "name": "archive_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "compactor_agent_id": {
-          "name": "compactor_agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "compactor_run_id": {
-          "name": "compactor_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "issue_context_compactions_company_issue_status_idx": {
-          "name": "issue_context_compactions_company_issue_status_idx",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "issue_context_compactions_compactor_run_idx": {
-          "name": "issue_context_compactions_compactor_run_idx",
-          "columns": [
-            {
-              "expression": "compactor_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "issue_context_compactions_one_active_per_issue": {
-          "name": "issue_context_compactions_one_active_per_issue",
-          "columns": [
-            {
-              "expression": "issue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"issue_context_compactions\".\"status\" in ('queued', 'running')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "issue_context_compactions_company_id_companies_id_fk": {
-          "name": "issue_context_compactions_company_id_companies_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "companies",
-          "columnsFrom": [
-            "company_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "issue_context_compactions_issue_id_issues_id_fk": {
-          "name": "issue_context_compactions_issue_id_issues_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "issues",
-          "columnsFrom": [
-            "issue_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "issue_context_compactions_requested_by_agent_id_agents_id_fk": {
-          "name": "issue_context_compactions_requested_by_agent_id_agents_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "requested_by_agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "issue_context_compactions_through_comment_id_issue_comments_id_fk": {
-          "name": "issue_context_compactions_through_comment_id_issue_comments_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "issue_comments",
-          "columnsFrom": [
-            "through_comment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "issue_context_compactions_compactor_agent_id_agents_id_fk": {
-          "name": "issue_context_compactions_compactor_agent_id_agents_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "agents",
-          "columnsFrom": [
-            "compactor_agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "issue_context_compactions_compactor_run_id_heartbeat_runs_id_fk": {
-          "name": "issue_context_compactions_compactor_run_id_heartbeat_runs_id_fk",
-          "tableFrom": "issue_context_compactions",
-          "tableTo": "heartbeat_runs",
-          "columnsFrom": [
-            "compactor_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.issue_create_idempotency_keys": {
       "name": "issue_create_idempotency_keys",
       "schema": "",
@@ -37715,6 +37416,26 @@
           "notNull": true,
           "default": true
         },
+        "setup_pending": {
+          "name": "setup_pending",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "last_webhook_delivery": {
+          "name": "last_webhook_delivery",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "cron_expression": {
           "name": "cron_expression",
           "type": "text",
@@ -37967,6 +37688,100 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.routine_webhook_test_receipts": {
+      "name": "routine_webhook_test_receipts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_id": {
+          "name": "trigger_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delivery_key_hash": {
+          "name": "delivery_key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "routine_webhook_test_receipts_delivery_uq": {
+          "name": "routine_webhook_test_receipts_delivery_uq",
+          "columns": [
+            {
+              "expression": "trigger_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "delivery_key_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "routine_webhook_test_receipts_company_id_companies_id_fk": {
+          "name": "routine_webhook_test_receipts_company_id_companies_id_fk",
+          "tableFrom": "routine_webhook_test_receipts",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "routine_webhook_test_receipts_trigger_id_routine_triggers_id_fk": {
+          "name": "routine_webhook_test_receipts_trigger_id_routine_triggers_id_fk",
+          "tableFrom": "routine_webhook_test_receipts",
+          "tableTo": "routine_triggers",
+          "columnsFrom": [
+            "trigger_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

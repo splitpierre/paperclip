@@ -6,6 +6,7 @@ import { activityApi } from "../api/activity";
 import { buRecoveryApi } from "../api/bu-recovery"; // bu-fork
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "./ui/button";
+import { Link } from "../lib/router";
 
 export function ExecutionBlockerNotice({ companyId, issueId, blocker, onRetried }: {
   companyId: string;
@@ -28,6 +29,7 @@ export function ExecutionBlockerNotice({ companyId, issueId, blocker, onRetried 
       void queryClient.invalidateQueries({ queryKey });
     }
   };
+  const requiresInspection = blocker.cause === "native_continuation_requires_reconciliation";
   const retry = useMutation({
     mutationFn: () => agentsApi.retryFailedRun(failedRun!.agentId, failedRun!.runId, companyId),
     onSuccess: invalidateAfterRecovery,
@@ -53,7 +55,9 @@ export function ExecutionBlockerNotice({ companyId, issueId, blocker, onRetried 
   const canResume = Boolean(blocker.recoveryActionId);
   return (
     <div role="status" aria-label="Task recovery" className="mx-(--sz-execution-blocker-inline) my-(--sz-execution-blocker-block) flex flex-wrap items-center justify-between execution-blocker-notice border border-border bg-muted text-foreground">
-      <span>{blocker.cause === "legacy_execution_requires_reconciliation" ? "Automatic recovery of this task stopped." : blocker.nextAction}</span>
+      <span>{blocker.cause === "legacy_execution_requires_reconciliation"
+        ? "Automatic recovery of this task stopped."
+        : `${requiresInspection ? "Recovery needed. " : ""}${blocker.nextAction}`}</span>
       {canResume && (
         <Button
           variant="outline"
@@ -65,7 +69,12 @@ export function ExecutionBlockerNotice({ companyId, issueId, blocker, onRetried 
           {resume.isPending ? "Checking…" : "Resume"}
         </Button>
       )}
-      {failedRun && (
+      {requiresInspection && blocker.agentId && blocker.runId && (
+        <Button variant="outline" size="sm" asChild>
+          <Link to={`/agents/${blocker.agentId}/runs/${blocker.runId}`}>Inspect run</Link>
+        </Button>
+      )}
+      {!requiresInspection && failedRun && (
         <Button variant="outline" size="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>
           {retry.isPending ? "Retrying…" : "Retry"}
         </Button>
