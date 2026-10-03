@@ -79,5 +79,31 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
 - [ ] Remove unused AI connections ("My Claude subscription", "Bu Digital Anthropic Acc" personal,
       "My OpenAI subscription") once nothing references them.
 - [ ] Turn sign-up off again after member testing (`auth.disableSignUp: true` in the instance config).
+- [x] 2026-10-03: **Rebased `bu/main` onto `v2026.1001.0`** (from `v2026.916.1`). 11 real conflicts
+      across 6 files hand-resolved (migration numbering, `app-definitions.generated.ts`, `pnpm-lock.yaml`,
+      `server-utils.ts` prompt wording, `execution-continuation.ts` imports, `ExecutionBlockerNotice`
+      Resume-vs-Inspect-run, `ChatEndpointSetup` identity guidance, `chat-channels.ts` ×3); everything
+      else auto-merged. Found and fixed two real upstream bugs hit live during the rollout, both now
+      part of the fork:
+      - `setup-token-session.ts`: `toCleanupRecord` maps a null `providerLeaseId` to `""`; the reaper
+        then called `releaseById("")` every sweep forever, throwing `invalid input syntax for type
+        uuid` on `environment_leases` every heartbeat tick and leaving 21 orphaned login sessions
+        stuck. Now skips the release call when there's no real lease to release.
+      - `cli/src/commands/service.ts`: `waitForHealth` required `/api/health`'s `serverVersion` to
+        match post-restart, but that field is redacted from any unauthenticated caller — including
+        this CLI's own loopback probe — once `deploymentMode` is `"authenticated"`. Every
+        `paperclipai update` on this (private) instance timed out at 60s and rolled back no matter
+        how healthy the new version was. Now accepts a withheld (null) version as healthy; still
+        rejects an explicit mismatch.
+      - Also found (systemd-config, not a code fix): `KillMode=control-group` sent the stop signal to
+        the embedded Postgres child at the same instant as the app, racing the app's own ordered
+        shutdown (which stops Postgres last) now that `v2026.1001.0` added more shutdown-time sweeps.
+        Fixed locally via a `KillMode=mixed` drop-in; not yet decided whether to document this as a
+        required local setup step or report it upstream.
+      - One pre-existing stale migration-tracking row needed a manual `INSERT` into
+        `drizzle.__drizzle_migrations` to mark the fork's renumbered `0284` migration as applied
+        without re-running it (its effects — `issue_context_compactions`, the whatsapp provider-check
+        entries — already existed on this DB from before the renumbering; verified byte-for-byte
+        structural match first).
 - [ ] Track upstream: rebase `bu/main` onto new release tags; re-run `scripts/bu/overlay-deploy.sh`
       after any `paperclipai update` (the update replaces the overlay).
