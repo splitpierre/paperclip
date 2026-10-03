@@ -16,7 +16,7 @@ set -euo pipefail
 
 DRY_RUN=0; [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-BASE_VERSION="2026.916.1"
+BASE_VERSION="2026.1001.0"
 INSTALL="$HOME/.paperclip/cli/installs/npm/$BASE_VERSION/node_modules/@paperclipai"
 # The CLI ships as its own unscoped npm package ("paperclipai", not "@paperclipai/cli"),
 # a single esbuild-bundled dist/index.js rather than a tsc dist/ tree, and isn't
