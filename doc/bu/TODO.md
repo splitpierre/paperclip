@@ -105,5 +105,17 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
         without re-running it (its effects — `issue_context_compactions`, the whatsapp provider-check
         entries — already existed on this DB from before the renumbering; verified byte-for-byte
         structural match first).
+- [x] 2026-10-05: **`claude_local`'s model picker was missing Claude Opus 5.5 / Sonnet 5.5.** The
+      adapter ships a hardcoded model catalog (`packages/adapters/claude-local/src/index.ts`) with no
+      live-discovery hook (`listModels`/`refreshModels` unimplemented), so the UI's "refresh" button is
+      a no-op for this adapter — new Anthropic releases only show up after a source update + redeploy.
+      Used Paperclip's own sanctioned override instead of waiting on that: `PAPERCLIP_ADAPTER_MODELS`
+      (JSON map of adapter type → model list, read on every request, no restart-order dependency) set
+      via a new systemd drop-in, `~/.config/systemd/user/paperclipai.service.d/adapter-models.conf` —
+      carries the full existing `claude_local` list plus `claude-opus-5-5`/`claude-sonnet-5-5`. **Not
+      tracked in this repo or the overlay** — it's a host-local env var drop-in, so it survives
+      `paperclipai update`/a reinstall of the npm payload but would need re-creating on a fresh host.
+      If a future upstream release adds a live model-discovery hook for `claude_local`, this drop-in
+      should be removed rather than left to silently override a now-good default list.
 - [ ] Track upstream: rebase `bu/main` onto new release tags; re-run `scripts/bu/overlay-deploy.sh`
       after any `paperclipai update` (the update replaces the overlay).
