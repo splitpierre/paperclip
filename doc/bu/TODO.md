@@ -59,6 +59,24 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
             both by hand through the raw API. `diagnoseRecoveryAction` now recognizes that case and
             runs the normal safety checks on it instead of refusing outright; 3 new tests added
             (reopenable-and-safe, reopenable-but-unverified-side-effects, resolved-with-no-replay-hold).
+- [x] 2026-10-12: **Plugin-adapter failures left tasks permanently unresumable (BUD-357; also BUD-365,
+      BUD-392, BUD-92, BUD-103).** A Quinn Gemini run hit an Antigravity 429 quota error. Because
+      `antigravity_local`/`zai_local` weren't in `CONVERSATION_ADAPTER_TYPES`
+      (`conversation-continuation.ts`), the failure wasn't stamped `continue_conversation_v1` and became a
+      `legacy_execution_requires_reconciliation` no-replay hold. Every way out failed:
+      - Commenting on Quinn: explicit continuation only admits conversation adapters.
+      - Reassigning, then commenting: the hold named the old owner's run, so the wait was "source_unavailable".
+      - The Resume button: the task shares the dirty BUD-301 release worktree with 44 other tasks.
+
+      Fixes:
+      - Both plugin adapters are now conversation adapters.
+      - `admitExplicitNativeContinuation` lets a board message hand a legacy hold to a reassigned
+        conversation agent. That agent starts a fresh session, and the stop proofs still apply.
+      - The Resume diagnosis's tool-call scan never matched any adapter: logs wrap events as escaped
+        `chunk` strings, and the Codex and agy markers were missing. It now decodes chunks and knows
+        `acpx.tool_call` and `"step_type":"tool"`.
+
+      Existing stuck tasks resume with a fresh board comment after deploy.
 - [ ] **DB connection leak: `listPendingFinalizeBlockerIssueIds` (`server/src/services/issues.ts:2367`).**
       2026-09-27: 10 connections stuck `idle in transaction` for 38+ min, all mid the exact same
       `workspace_operations` query (Postgres state `ClientRead` — it already answered; the app just never

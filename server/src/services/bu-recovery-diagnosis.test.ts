@@ -104,6 +104,33 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(result.safe).toBe(true);
   });
 
+  // Real run logs wrap each provider line as an escaped JSON string in `chunk`; the
+  // original raw-text scan never matched there, for any adapter.
+  it.each([
+    ["claude_local", { type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Read" }] } }],
+    ["codex_local", { type: "acpx.tool_call", name: "ls -la", status: "completed" }],
+    ["antigravity_local", { event: "step_update", step_update: { step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "run_command" } }],
+  ])("is unsafe when a %s tool call sits inside a wrapped log chunk", async (_adapter, event) => {
+    const { issueId, actionId, runId } = await makeIssue("legacy_execution_requires_reconciliation", "active");
+    const logRef = `${companyId}/${agentId}/${runId}.ndjson`;
+    await db.update(heartbeatRuns).set({ logRef }).where(eq(heartbeatRuns.id, runId));
+    const line = (chunk: string) => JSON.stringify({ ts: new Date().toISOString(), stream: "stdout", chunk });
+    await writeRunLog(logRef, `${line('{"type":"system","subtype":"init"}\n')}\n${line(`${JSON.stringify(event)}\n`)}\n`);
+    const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toMatch(/tool-call marker/);
+  });
+
+  it("is safe when a wrapped log has only a provider quota refusal", async () => {
+    const { issueId, actionId, runId } = await makeIssue("legacy_execution_requires_reconciliation", "active");
+    const logRef = `${companyId}/${agentId}/${runId}.ndjson`;
+    await db.update(heartbeatRuns).set({ logRef }).where(eq(heartbeatRuns.id, runId));
+    await writeRunLog(logRef, `${JSON.stringify({ ts: new Date().toISOString(), stream: "stderr",
+      chunk: "error: Individual quota reached. Resets in 33m38s.\n" })}\n`);
+    const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });
+    expect(result.safe).toBe(true);
+  });
+
   it("is unsafe for a cause that isn't reconciliation-required (getExecutionBlocker never surfaces it as the blocker)", async () => {
     const { issueId, actionId } = await makeIssue("workspace_validation_failed", "active");
     const result = await diagnoseRecoveryAction(db, { companyId, issueId, actionId });

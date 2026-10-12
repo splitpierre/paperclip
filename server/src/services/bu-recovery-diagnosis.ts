@@ -28,15 +28,38 @@ import { getExecutionBlocker } from "./execution-blocker.js";
 
 const execFile = promisify(execFileCallback);
 const GIT_TIMEOUT_MS = 15_000;
-/** Adapter-agnostic markers of a real tool call in a run's ndjson log; kept broad on purpose. */
+/**
+ * Adapter-agnostic markers of a real tool call in a run's ndjson log; kept broad on purpose.
+ * Matched against each line's decoded `chunk` (run logs wrap provider output as an escaped
+ * JSON string), and against the raw line for anything not wrapped that way.
+ */
 const TOOL_CALL_MARKERS = [
-  '"type":"tool_use"',
+  '"type":"tool_use"', // Claude Code (claude_local, zai_local)
   '"type":"tool_call"',
-  '"type":"acpx.tool"',
+  '"type":"acpx.tool', // ACP engine (codex_local): acpx.tool_call / acpx.tool_result
   '"tool_use_id"',
+  '"step_type":"tool"', // agy stream-json (antigravity_local)
   '"name":"Bash"',
   '"name":"bash"',
 ];
+
+function findToolCallMarker(text: string): string | undefined {
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    const candidates = [line];
+    try {
+      const chunk = (JSON.parse(line) as { chunk?: unknown }).chunk;
+      if (typeof chunk === "string") candidates.push(chunk);
+    } catch {
+      // Not JSON: the raw line is all there is to scan.
+    }
+    for (const candidate of candidates) {
+      const hit = TOOL_CALL_MARKERS.find((marker) => candidate.includes(marker));
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
 
 const RESOLVABLE_RUN_STATUSES = new Set(["failed", "cancelled", "timed_out", "interrupted"]);
 
@@ -85,7 +108,7 @@ function logHasToolCalls(logRef: string | null): { hasCalls: boolean; detail: st
   if (!existsSync(file)) return { hasCalls: false, detail: "run log file not found (nothing to scan)" };
   try {
     const text = readFileSync(file, "utf8");
-    const hit = TOOL_CALL_MARKERS.find((marker) => text.includes(marker));
+    const hit = findToolCallMarker(text);
     return hit ? { hasCalls: true, detail: `log contains a tool-call marker (${hit})` } : { hasCalls: false, detail: "log has no tool-call markers" };
   } catch (error) {
     return { hasCalls: true, detail: `could not read the run log (${error instanceof Error ? error.message : String(error)}) — treating as unverified` };
