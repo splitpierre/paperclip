@@ -10,6 +10,11 @@ Open items for `splitpierre/paperclip` (`bu/main`). Plans for larger items live 
 - [x] Port CLI health check, lease-less setup token cleanup, merged-/usr sandbox handling, managed Claude plugin skills, and plugin process-group cancellation.
 - [x] Update the overlay scripts for the new base version.
 - [x] Adopt upstream context compaction and model catalog. Keep the replay-history bound; upstream no longer sends wake context through the environment, so the old wake-payload E2BIG cap is obsolete. Preserve historical compaction data.
+- [x] BUD-1147 confirmation of the group A drops and the quota port (no code changes needed):
+      - Context compaction: dropped, upstream `context-compaction.ts` adopted. Kept `bu-context-budget.ts` (replay-history bound); the wake-payload E2BIG cap is dropped because upstream no longer sends wake context through the environment. `issue_context_compactions` stays in place, no drop migration.
+      - BUD-796 process-group kill: upstream `server-utils.ts` and `run-control.ts` cover local adapters; the plugin-adapter part is kept (`heartbeat/bu-persisted-process-target.ts`, `run-control.ts`).
+      - Opus/Sonnet 5.5 drop-in: dropped, `claude-opus-5-5` and `claude-sonnet-5-5` are in upstream's `claude_local` catalog (default is Opus 5.5).
+      - Quota: ported as `GET /companies/:companyId/costs/quota-windows/cached` (`bu-quota-windows-cache.ts`, refresh on read, same `{asOf, results}` shape as `bu/main`). The codex `-a untrusted` fix is dropped, upstream uses `on-request`.
 - [ ] Rehearse the full migration and smoke checklist on a disposable database copy before live cutover.
 - [ ] Remove the host-only model catalog override after the human-run cutover.
 
