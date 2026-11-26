@@ -65,6 +65,9 @@ vi.mock("../adapters/index.ts", async () => {
 });
 
 const external = resolveExternalTestDatabaseUrl("PAPERCLIP_STALE_QUEUE_TEST_DATABASE_URL");
+// The pre-dispatch gate rejects codex_local agents with no Codex credentials; a per-agent key satisfies it.
+const TEST_ADAPTER_CONFIG = { env: { OPENAI_API_KEY: "test-openai-key" } };
+
 const embeddedPostgresSupport = external ? { supported: true, reason: undefined } : await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
@@ -229,7 +232,7 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       role: opts.agentRole ?? "engineer",
       status: "active",
       adapterType: "codex_local",
-      adapterConfig: {},
+      adapterConfig: TEST_ADAPTER_CONFIG,
       runtimeConfig: {
         heartbeat: {
           wakeOnDemand: true,
@@ -245,7 +248,7 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
   it.each(["legacy", "native"])("delivers an accepted non-assignee queue after its %s owner finished", async runtimeMode => {
     const { companyId, agentId } = await seedCompanyAndAgent();
     const [recipient] = await db.insert(agents).values({ companyId, name: "Saved feedback recipient", role: "engineer",
-      status: "idle", adapterType: "codex_local", adapterConfig: {}, runtimeConfig: { heartbeat: { wakeOnDemand: true } }, permissions: {},
+      status: "idle", adapterType: "codex_local", adapterConfig: TEST_ADAPTER_CONFIG, runtimeConfig: { heartbeat: { wakeOnDemand: true } }, permissions: {},
     }).returning();
     const [issue] = await db.insert(issues).values({ companyId, title: "Existing accepted feedback", status: "in_progress", assigneeAgentId: agentId }).returning();
     const [owner] = await db.insert(heartbeatRuns).values({ companyId, agentId, invocationSource: "assignment", status: "succeeded",
@@ -835,7 +838,7 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
           role: "engineer",
           status: "active",
           adapterType: "codex_local",
-          adapterConfig: {},
+          adapterConfig: TEST_ADAPTER_CONFIG,
           runtimeConfig: { heartbeat: { wakeOnDemand: true, maxConcurrentRuns: 1 } },
           permissions: {},
         });
@@ -1628,7 +1631,7 @@ describeEmbeddedPostgres("heartbeat stale queued-run invalidation", () => {
       role: "engineer",
       status: "active",
       adapterType: "codex_local",
-      adapterConfig: {},
+      adapterConfig: TEST_ADAPTER_CONFIG,
       runtimeConfig: {
         heartbeat: {
           wakeOnDemand: true,
