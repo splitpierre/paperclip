@@ -59,6 +59,10 @@ PACKAGES=(
 
 echo "== building (tsc only; the runner binary is not touched)"
 cd "$REPO"
+# Since 2026.1117.0 the server compiles against these two workspace packages'
+# dist types. They are build inputs only and are not overlaid.
+pnpm --filter @paperclipai/paperclip-runner run build:typescript
+pnpm --filter @paperclipai/plugin-sdk build
 for entry in "${PACKAGES[@]}"; do
   dir="${entry%%:*}"
   if [ "$dir" = server ]; then
