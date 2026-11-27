@@ -1,0 +1,14 @@
+7[r8[?25h[?25l[?2004h[?2031h[?1004h[<u[>5u[>4;2m[38;5;174mWelcome[9Gto[12GClaude[19GCode[24G[38;5;246mv2.1.332[39m
+
+[2G[1mThis[7Gwill[12Gguide[18Gyou[22Gthrough[30Glong-lived[41G(1-year)[50Gauth[55Gtoken[61Gsetup[67Gfor[71Gyour[22m
+[2G[1mClaude[9Gaccount.[18GClaude[25Gsubscription[38Grequired.[22m
+
+Ptmux;]11;?\[2GBrowser[10Gdidn't[17Gopen?[23GUse[27Gthe[31GURL[35Gbelow[41Gto[44Gsign[49Gin[52G[38;5;246m(c[55Gto[58Gcopy)[39m
+
+]8;id=fd3yp8;https://claude.ai/oauth/authorize?Q2xhdWRlU2V0dXBUb2tlblN5bnRoZXRpY1ZhbHVlMDEA[38;5;246mhttps://claude.ai/oauth/authorize?Q2xhdWRlU2V0dXBUb2tlblN5bnRoZXRpY1ZhbHVlMDEA[39m]8;;
+
+[2GPaste[8Gcode[13Ghere[18Gif[21Gprompted
+[2G[38;5;153m╭─────────────────────────────────────────────────────────────────────────────╮[39m
+[2G[38;5;153m│[4G[39m[7m [80G[27m[38;5;153m│[39m
+[2G[38;5;153m╰─────────────────────────────────────────────────────────────────────────────╯[39m
+[3C[2A[>0q[?u]7501;?[c[c]11;?[c
