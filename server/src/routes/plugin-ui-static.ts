@@ -209,6 +209,17 @@ export interface PluginUiStaticRouteOptions {
  * @param options - Configuration options
  * @returns Express router
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function postgresErrorCode(error: unknown): unknown {
+  for (let current = error, depth = 0; current && typeof current === "object" && depth < 4; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (code !== undefined) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 export function pluginUiStaticRoutes(db: Db, options: PluginUiStaticRouteOptions) {
   const router = Router();
   const registry = pluginRegistryService(db);
@@ -246,16 +257,18 @@ export function pluginUiStaticRoutes(db: Db, options: PluginUiStaticRouteOptions
     }
 
     // Step 1: Look up the plugin
+    // Plugin UIs may address their assets by plugin key (`/_plugins/<key>/ui/`).
+    // Only a UUID can match the id column, so a key goes straight to getByKey.
+    // The query layer wraps driver errors, so an invalid-UUID error (22P02) can
+    // carry its code on `cause` rather than on the error itself.
     let plugin = null;
-    try {
-      plugin = await registry.getById(pluginId);
-    } catch (error) {
-      const maybeCode =
-        typeof error === "object" && error !== null && "code" in error
-          ? (error as { code?: unknown }).code
-          : undefined;
-      if (maybeCode !== "22P02") {
-        throw error;
+    if (UUID_RE.test(pluginId)) {
+      try {
+        plugin = await registry.getById(pluginId);
+      } catch (error) {
+        if (postgresErrorCode(error) !== "22P02") {
+          throw error;
+        }
       }
     }
     if (!plugin) {

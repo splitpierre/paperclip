@@ -109,6 +109,48 @@ describe("plugin UI static route", () => {
     expect(mockRegistry.getConfig).not.toHaveBeenCalled();
   });
 
+  it("serves assets addressed by plugin key without querying the id column", async () => {
+    const packageRoot = createPluginPackage("export const marker = 'by-key';\n");
+    readyPlugin(packageRoot);
+    const record = await mockRegistry.getById();
+    mockRegistry.getById.mockReset();
+    mockRegistry.getByKey.mockResolvedValue(record);
+    const app = await createApp({ type: "none", source: "none" });
+
+    const res = await request(app).get("/_plugins/paperclip.example/ui/index.js");
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("by-key");
+    expect(mockRegistry.getById).not.toHaveBeenCalled();
+    expect(mockRegistry.getByKey).toHaveBeenCalledWith("paperclip.example");
+  });
+
+  it("falls back to the key when the id lookup fails with a wrapped invalid-UUID error", async () => {
+    const packageRoot = createPluginPackage("export const marker = 'wrapped';\n");
+    readyPlugin(packageRoot);
+    const record = await mockRegistry.getById();
+    mockRegistry.getById.mockRejectedValue(
+      Object.assign(new Error("Failed query"), { cause: Object.assign(new Error("invalid input syntax for type uuid"), { code: "22P02" }) }),
+    );
+    mockRegistry.getByKey.mockResolvedValue(record);
+    const app = await createApp({ type: "none", source: "none" });
+
+    const res = await request(app).get(`/_plugins/${pluginId}/ui/index.js`);
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("wrapped");
+  });
+
+  it("still surfaces other id lookup errors", async () => {
+    mockRegistry.getById.mockRejectedValue(Object.assign(new Error("connection lost"), { code: "57P01" }));
+    const app = await createApp({ type: "none", source: "none" });
+
+    const res = await request(app).get(`/_plugins/${pluginId}/ui/index.js`);
+
+    expect(res.status).toBe(500);
+    expect(mockRegistry.getByKey).not.toHaveBeenCalled();
+  });
+
   it("requires authentication before reading company-scoped devUiUrl config", async () => {
     readyPlugin(createPluginPackage());
     const app = await createApp({ type: "none", source: "none" });
