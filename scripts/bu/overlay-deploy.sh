@@ -60,9 +60,13 @@ PACKAGES=(
 echo "== building (tsc only; the runner binary is not touched)"
 cd "$REPO"
 # Since 2026.1117.0 the server compiles against these two workspace packages'
-# dist types. They are build inputs only and are not overlaid.
-pnpm --filter @paperclipai/paperclip-runner run build:typescript
-pnpm --filter @paperclipai/plugin-sdk build
+# dist types. They are build inputs only and are not overlaid, and the fork does
+# not change them, so build them only when missing (BU_REBUILD_DEPS=1 forces it).
+# The plugin-sdk tsc can peak near 10 GB, which earlyoom kills next to a live server.
+[ -f packages/paperclip-runner/dist/index.d.ts ] && [ "${BU_REBUILD_DEPS:-0}" != 1 ] \
+  || pnpm --filter @paperclipai/paperclip-runner run build:typescript
+[ -f packages/plugins/sdk/dist/index.d.ts ] && [ "${BU_REBUILD_DEPS:-0}" != 1 ] \
+  || pnpm --filter @paperclipai/plugin-sdk build
 for entry in "${PACKAGES[@]}"; do
   dir="${entry%%:*}"
   if [ "$dir" = server ]; then

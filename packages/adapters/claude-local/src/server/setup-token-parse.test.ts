@@ -47,6 +47,10 @@ const QUERY = [
 const CLAUDE_AI_URL = `https://claude.ai/oauth/authorize?${QUERY}`;
 const CLAUDE_COM_URL = `https://claude.com/cai/oauth/authorize?${QUERY}`;
 
+// The synthetic opaque query of the `claude` 2.1.331+ short authorization URL,
+// the same value the 2.1.332 PTY fixture carries. It is not a real OAuth value.
+const SHORT_QUERY = "Q2xhdWRlU2V0dXBUb2tlblN5bnRoZXRpY1ZhbHVlMDEA";
+
 // The default URL for the credential-parser regression tests below.
 const VALID_URL = CLAUDE_COM_URL;
 
@@ -343,6 +347,46 @@ describe("parseSetupTokenPrompt", () => {
     const result = parseSetupTokenPrompt(text);
     expect(result?.url).toBe(CLAUDE_COM_URL);
     expect(result?.prompt).toBe(SETUP_TOKEN_PROMPT);
+  });
+
+  it("reads the 2.1.332 short authorization URL from a raw PTY capture", () => {
+    // Raw `claude setup-token` 2.1.332 PTY bytes: CHA-spaced words, an OSC 8
+    // hyperlink, and a URL whose whole query is one opaque value. The live value
+    // was replaced with a synthetic one.
+    const result = parseSetupTokenPrompt(readFixture("setup-token-2.1.332-pty.txt"));
+    expect(result?.url).toBe(`https://claude.ai/oauth/authorize?${SHORT_QUERY}`);
+    expect(result?.prompt).toBe(SETUP_TOKEN_PROMPT);
+  });
+
+  it("accepts the short query form on both pinned authorization URLs", () => {
+    for (const base of SETUP_TOKEN_AUTH_URLS) {
+      const url = `${base}?${SHORT_QUERY}`;
+      expect(parseSetupTokenPrompt(completeOutput(url))?.url).toBe(url);
+    }
+  });
+
+  it("returns null for a short query on a wrong host or path", () => {
+    expect(parseSetupTokenPrompt(completeOutput(`https://claude.ai.evil.example/oauth/authorize?${SHORT_QUERY}`))).toBeNull();
+    expect(parseSetupTokenPrompt(completeOutput(`https://claude.ai/oauth/other?${SHORT_QUERY}`))).toBeNull();
+  });
+
+  it("returns null for a short query that is too short, too long, or not one bare value", () => {
+    for (const query of [
+      SHORT_QUERY.slice(0, 31),
+      "A".repeat(129),
+      `${SHORT_QUERY}=`,
+      `${SHORT_QUERY}&x`,
+      `v=${SHORT_QUERY}`,
+      `${SHORT_QUERY.slice(0, 20)}%2D${SHORT_QUERY.slice(20)}`,
+      `${SHORT_QUERY.slice(0, 20)}.${SHORT_QUERY.slice(20)}`,
+    ]) {
+      expect(parseSetupTokenPrompt(completeOutput(`https://claude.ai/oauth/authorize?${query}`))).toBeNull();
+    }
+  });
+
+  it("returns null for a short query that holds an API-key prefix", () => {
+    const query = `sk-ant-${SHORT_QUERY}`;
+    expect(parseSetupTokenPrompt(completeOutput(`https://claude.ai/oauth/authorize?${query}`))).toBeNull();
   });
 
   it("returns null when a code-like value sits on the line after the URL", () => {

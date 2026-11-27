@@ -95,6 +95,14 @@ const STATE_RE = /^[A-Za-z0-9_-]{16,256}$/;
 // One `scope` token. The `scope` value is one to eight space-separated tokens.
 const SCOPE_TOKEN_RE = /^[A-Za-z0-9:._-]{1,64}$/;
 
+// The `claude` 2.1.331 and later authorization URL carries one opaque
+// base64url value as its whole query (`authorize?<value>`), with no key=value
+// pairs. A live 2.1.332 capture measured 44 characters (32 bytes). The parser
+// accepts this short form only on the pinned origin-and-path pairs, and only when
+// the whole raw query is one value of this pattern, so it holds no `=`, `&`,
+// percent-encoding or added key.
+const SHORT_QUERY_RE = /^[A-Za-z0-9_-]{32,128}$/;
+
 // The name of an added query key. An added key is any key that is not a required
 // key. The parser accepts at most four added keys, each with a name that matches
 // this pattern.
@@ -335,7 +343,7 @@ function validateAuthUrl(candidate: string): string | null {
   if (parsed.port !== "" || parsed.hash !== "") return null;
   const pair = `${parsed.origin}${parsed.pathname}`;
   if (!SETUP_TOKEN_AUTH_URLS.includes(pair as (typeof SETUP_TOKEN_AUTH_URLS)[number])) return null;
-  if (!hasValidQuery(parsed)) return null;
+  if (!hasValidQuery(parsed) && !SHORT_QUERY_RE.test(parsed.search.slice(1))) return null;
   return candidate;
 }
 
