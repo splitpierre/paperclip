@@ -75,6 +75,8 @@ parse_db_url() {
       process.stdout.write(dbName);
     } else if (field === "owner") {
       process.stdout.write(dbOwner);
+    } else if (field === "port") {
+      process.stdout.write(u.port || "5432");
     } else if (field === "admin_url") {
       u.pathname = "/postgres";
       process.stdout.write(u.toString());
@@ -153,6 +155,41 @@ run_pg_restore() {
   fi
 }
 
+# Embedded Postgres runs inside the Paperclip service, so it is down whenever the
+# service is stopped. Rollback restores the DB with the service stopped, so it
+# starts the cluster on its own with the active payload's pg_ctl, then stops it.
+PG_DATA_DIR="${PAPERCLIP_PG_DATA_DIR:-$HOME/.paperclip/instances/default/db}"
+standalone_pg=0
+
+pg_ctl_bin() {
+  echo "$HOME/.paperclip/cli/current/node_modules/@embedded-postgres/linux-x64/native/bin/pg_ctl"
+}
+
+start_standalone_pg() {
+  if [ -n "${DATABASE_URL:-}" ]; then
+    echo "DATABASE_URL is set; assuming an external Postgres that is already running."
+    return 0
+  fi
+  local pg_ctl port
+  pg_ctl="$(pg_ctl_bin)"
+  [ -x "$pg_ctl" ] || { echo "ERROR: embedded pg_ctl not found at $pg_ctl" >&2; return 1; }
+  if "$pg_ctl" -D "$PG_DATA_DIR" status >/dev/null 2>&1; then
+    echo "Embedded Postgres is already running."
+    return 0
+  fi
+  port="$(parse_db_url port)"
+  echo "Starting embedded Postgres on its own (port $port) for the restore..."
+  "$pg_ctl" -D "$PG_DATA_DIR" -o "-p $port -c listen_addresses=127.0.0.1" -l "$PG_DATA_DIR/../bu-bump-standalone-pg.log" -w start
+  standalone_pg=1
+}
+
+stop_standalone_pg() {
+  [ "$standalone_pg" = 1 ] || return 0
+  echo "Stopping the standalone embedded Postgres..."
+  "$(pg_ctl_bin)" -D "$PG_DATA_DIR" -m fast -w stop
+  standalone_pg=0
+}
+
 check_health() {
   local response
   for _ in $(seq 1 40); do
@@ -186,11 +223,14 @@ case "${1:-}" in
     echo "          $BACKUP_ROOT/<timestamp>/database.dump"
     echo "[dry-run] Would verify archive integrity with pg_restore --list"
 
-    step "Step 3/5: Update managed Paperclip CLI & server to $TARGET_VERSION"
-    echo "[dry-run] Would run: paperclipai update --version $TARGET_VERSION --yes"
+    step "Step 3/5: Stop $SERVICE_NAME, then switch the managed install to $TARGET_VERSION"
+    echo "[dry-run] Would run: systemctl --user stop $SERVICE_NAME"
+    echo "[dry-run] Would run: paperclipai update --version $TARGET_VERSION --yes --no-backup"
+    echo "          (the service stays stopped, so stock $TARGET_VERSION never boots or migrates the DB)"
 
-    step "Step 4/5: Build & apply Bu fork overlay"
+    step "Step 4/5: Build & apply Bu fork overlay, then start the service"
     echo "[dry-run] Would run: bash $REPO/scripts/bu/overlay-deploy.sh"
+    echo "          (the first boot is the fork server, which applies the fork's migrations)"
 
     step "Step 5/5: Verify /api/health and active CLI version"
     echo "[dry-run] Would poll $HEALTH_URL for status == \"ok\""
@@ -199,7 +239,7 @@ case "${1:-}" in
     step "Rollback plan"
     echo "[dry-run] Rollback command:"
     echo "          bash $REPO/scripts/ops/BUD-1139-bump.sh --rollback $BACKUP_ROOT/<timestamp>"
-    echo "          (stops $SERVICE_NAME, flips managed install back via paperclipai update --rollback, drops/recreates DB and runs pg_restore --exit-on-error --no-owner --no-privileges, restarts service, checks $HEALTH_URL)"
+    echo "          (stops $SERVICE_NAME, flips managed install back via paperclipai update --rollback, starts embedded Postgres on its own, drops/recreates DB and runs pg_restore --exit-on-error --no-owner --no-privileges, restarts service, checks $HEALTH_URL)"
     ;;
 
   --apply)
@@ -229,11 +269,30 @@ case "${1:-}" in
     echo "If any later step fails, roll back with:"
     echo "  bash $REPO/scripts/ops/BUD-1139-bump.sh --rollback $backup"
 
-    step "Step 3/5: Update managed Paperclip install to $TARGET_VERSION"
-    paperclipai update --version "$TARGET_VERSION" --yes
+    # Stop first. 'paperclipai update' restarts an active service, which would boot
+    # stock $TARGET_VERSION and run its migrations before the fork overlay is in place
+    # (stock 0324 drops 'whatsapp' from chat_endpoints_provider_check and fails on our
+    # rows). With the service stopped it only switches the payload.
+    step "Step 3/5: Stop $SERVICE_NAME and switch the managed install to $TARGET_VERSION"
+    systemctl --user stop "$SERVICE_NAME"
+    paperclipai update --version "$TARGET_VERSION" --yes --no-backup
+    if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+      echo "ERROR: $SERVICE_NAME is running stock $TARGET_VERSION; it must stay stopped until the overlay is applied." >&2
+      echo "Rollback with: bash $REPO/scripts/ops/BUD-1139-bump.sh --rollback $backup" >&2
+      exit 1
+    fi
+    if [[ "$(paperclipai --version 2>/dev/null || true)" != *"$TARGET_VERSION"* ]]; then
+      echo "ERROR: managed install did not switch to $TARGET_VERSION." >&2
+      echo "Rollback with: bash $REPO/scripts/ops/BUD-1139-bump.sh --rollback $backup" >&2
+      exit 1
+    fi
 
-    step "Step 4/5: Apply Bu fork overlay"
-    bash "$REPO/scripts/bu/overlay-deploy.sh"
+    step "Step 4/5: Apply Bu fork overlay and start $SERVICE_NAME"
+    if ! bash "$REPO/scripts/bu/overlay-deploy.sh"; then
+      echo "ERROR: overlay deploy failed." >&2
+      echo "Rollback with: bash $REPO/scripts/ops/BUD-1139-bump.sh --rollback $backup" >&2
+      exit 1
+    fi
 
     step "Step 5/5: Verify /api/health and active CLI version"
     check_health
@@ -280,7 +339,11 @@ case "${1:-}" in
     fi
 
     step "Rollback 4/5: Restoring pre-update database from $backup/database.dump"
+    trap stop_standalone_pg EXIT
+    start_standalone_pg
     run_pg_restore "$backup/database.dump"
+    stop_standalone_pg
+    trap - EXIT
 
     step "Rollback 5/5: Starting $SERVICE_NAME and verifying health"
     systemctl --user start "$SERVICE_NAME"

@@ -59,6 +59,10 @@ PACKAGES=(
 
 echo "== building (tsc only; the runner binary is not touched)"
 cd "$REPO"
+# Since 2026.1117.0 the server compiles against these two workspace packages'
+# dist types. They are build inputs only and are not overlaid.
+pnpm --filter @paperclipai/paperclip-runner run build:typescript
+pnpm --filter @paperclipai/plugin-sdk build
 for entry in "${PACKAGES[@]}"; do
   dir="${entry%%:*}"
   if [ "$dir" = server ]; then
@@ -99,8 +103,14 @@ echo "== $count file(s) to overlay; UI bundle changed: $ui_changed"
 [ "$count" -gt 0 ] || [ "$ui_changed" = 1 ] || { echo "Nothing to do."; exit 0; }
 [ "$DRY_RUN" = 1 ] && exit 0
 
-echo "== applying pending migrations (additive) while the current server runs"
-(cd packages/db && DATABASE_URL="$DB_URL" npx tsx src/migrate.ts)
+if systemctl --user is-active --quiet paperclipai.service; then
+  echo "== applying pending migrations (additive) while the current server runs"
+  (cd packages/db && DATABASE_URL="$DB_URL" npx tsx src/migrate.ts)
+else
+  # Stopped server (e.g. a version bump): embedded Postgres is down too, and the
+  # overlaid server applies the fork's migrations itself when it starts below.
+  echo "== Paperclip is stopped; the overlaid server applies pending migrations on start"
+fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"; backup="$BACKUPS/$stamp"; mkdir -p "$backup"
 cp "$plan" "$backup/plan.tsv"
